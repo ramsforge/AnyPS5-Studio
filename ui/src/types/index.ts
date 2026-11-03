@@ -111,6 +111,8 @@ export interface ResolvedRuntime {
   libsPath: string;
   isRemovable: boolean;
   isValid: boolean;
+  // Set when the requested runtime is missing or broken and this one is used instead.
+  fallbackFrom?: { id: string; name: string };
 }
 
 export interface ConversionStage {
@@ -142,6 +144,10 @@ export interface SystemTelemetry {
   cpuArchitecture?: string;
   recommendedCpuTranslation?: 'none' | 'intel' | 'rosetta';
   recommendationReason?: string;
+  // Real host checks: null/undefined means it could not be determined.
+  avx2?: boolean | null;
+  vulkanAvailable?: boolean;
+  prxCount?: number;
 }
 
 export interface DetectedGpu {

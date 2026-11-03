@@ -135,9 +135,7 @@ class ApiBridge {
   public async getGames(): Promise<GameItem[]> {
     if (window.anyps5) {
       const electronGames = await window.anyps5.getGames();
-      if (electronGames && Array.isArray(electronGames)) {
-        return electronGames;
-      }
+      return Array.isArray(electronGames) ? electronGames : [];
     }
     const stored = localStorage.getItem('anyps5_games');
     if (stored) {
@@ -270,7 +268,7 @@ class ApiBridge {
       relinkerPath: '',
       prxPath: '',
       defaultTarget: (typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')) ? 'linux' : 'windows',
-      cpuFix: 'intel',
+      cpuFix: 'auto',
       soundEnabled: true,
       hapticsEnabled: true,
       advanced: false,

@@ -415,16 +415,6 @@ export const GameLauncherModal: React.FC<GameLauncherModalProps> = ({
         });
       }
 
-      // Fallback process exit detection from log stream
-      if (msg.includes('Game process exited with code')) {
-        const match = msg.match(/Game process exited with code (-?\d+)\s*\((0x[0-9A-Fa-f]+)\)/);
-        if (match) {
-          handleProcessExit(parseInt(match[1]), match[2]);
-        } else {
-          handleProcessExit(null, null);
-        }
-      }
-
       // Vulkan pipeline counter
       if (msg.includes('cached SPIR-V pipeline')) {
         const match = msg.match(/(\d+)\s+cached SPIR-V pipeline/);
@@ -440,6 +430,16 @@ export const GameLauncherModal: React.FC<GameLauncherModalProps> = ({
       unsubscribeLog();
     };
   }, [game.id, handleProcessExit, launchGameProcess]);
+
+  // Closing the launcher while the game runs stops it: once the launcher is gone nothing tracks the process,
+  // and the next launch would end it without warning anyway.
+  const handleClose = async () => {
+    if (launchState === 'running' || launchState === 'launching') {
+      userRequestedStopRef.current = true;
+      await apiBridge.stopGame(pid || undefined);
+    }
+    onClose();
+  };
 
   // Handle Stop button click
   const handleStop = async () => {
@@ -511,9 +511,9 @@ export const GameLauncherModal: React.FC<GameLauncherModalProps> = ({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1 rounded-full text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
-            title="Close Launcher"
+            title={launchState === 'running' ? 'Stop game and close' : 'Close Launcher'}
           >
             <X className="w-4 h-4" />
           </button>
@@ -742,7 +742,7 @@ export const GameLauncherModal: React.FC<GameLauncherModalProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="px-5 py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-white font-medium text-xs transition-colors"
                   >
                     Back to Library
@@ -763,7 +763,7 @@ export const GameLauncherModal: React.FC<GameLauncherModalProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="px-5 py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-white font-medium text-xs transition-colors"
                   >
                     Back to Library
@@ -784,7 +784,7 @@ export const GameLauncherModal: React.FC<GameLauncherModalProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="px-5 py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-white font-medium text-xs transition-colors"
                   >
                     Back to Library
@@ -829,7 +829,7 @@ export const GameLauncherModal: React.FC<GameLauncherModalProps> = ({
 
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="px-5 py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-white font-medium text-xs transition-colors"
                   >
                     Back to Library

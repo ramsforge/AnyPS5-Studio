@@ -35,7 +35,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 }) => {
   const [activeRuntime, setActiveRuntime] = useState<ResolvedRuntime | null>(null);
   const [defaultTarget, setDefaultTarget] = useState<string>('windows');
-  const [cpuFix, setCpuFix] = useState<string>('intel');
+  const [cpuFix, setCpuFix] = useState<string>('auto');
   const [preferredGpu, setPreferredGpu] = useState<string>('auto');
   const [availableGpus, setAvailableGpus] = useState<DetectedGpu[]>([]);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(audioService.enabled);
@@ -83,7 +83,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           setSoundEnabled(settings.soundEnabled);
           audioService.enabled = settings.soundEnabled;
         }
-        if (settings.hapticsEnabled !== undefined) setHapticsEnabled(settings.hapticsEnabled);
+        if (settings.hapticsEnabled !== undefined) {
+          setHapticsEnabled(settings.hapticsEnabled);
+          audioService.hapticsEnabled = settings.hapticsEnabled;
+        }
         if (settings.advanced !== undefined) {
           setAdvanced(settings.advanced);
         } else {
@@ -147,6 +150,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       discordRpcEnabled,
     });
     onToggleAdvancedNav(advanced);
+    window.dispatchEvent(new Event('anyps5:settings-saved'));
     setIsSaved(true);
     setTimeout(() => {
       setIsSaved(false);
@@ -288,6 +292,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     }}
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#141923] border border-white/10 text-white text-xs focus:outline-none focus:border-white/30 transition-all font-sans cursor-pointer"
                   >
+                    <option value="auto">Auto (match this PC)</option>
                     <option value="intel">Intel x86-64 (AVX2 Lowering)</option>
                     <option value="amd">AMD Zen 2 / Zen 3 / Zen 4 Native</option>
                     <option value="rosetta">Apple Silicon (Rosetta JIT)</option>
@@ -404,6 +409,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   checked={hapticsEnabled}
                   onChange={(e) => {
                     setHapticsEnabled(e.target.checked);
+                    audioService.hapticsEnabled = e.target.checked;
                     setIsSaved(false);
                   }}
                   className="rounded bg-white/10 border-white/20 text-[#0070d1] focus:ring-0 mt-0.5"

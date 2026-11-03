@@ -25,8 +25,8 @@ export default {
         }
       },
       fontFamily: {
-        playstation: ['"Inter"', '-apple-system', '"Segoe UI"', 'Roboto', 'sans-serif'],
-        mono: ['"JetBrains Mono"', '"Fira Code"', 'monospace'],
+        playstation: ['"Inter Variable"', '"Inter"', '-apple-system', '"Segoe UI"', 'Roboto', 'sans-serif'],
+        mono: ['"JetBrains Mono Variable"', '"JetBrains Mono"', '"Fira Code"', 'monospace'],
       },
       boxShadow: {
         'ps-glow': '0 0 25px -5px rgba(0, 162, 255, 0.4)',

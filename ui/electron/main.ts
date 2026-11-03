@@ -266,6 +266,15 @@ ipcMain.handle('anyps5:get-games', async () => {
         let changed = false;
         const presentPaths: string[] = [];
         for (const g of games) {
+          // Older versions stored remote Unsplash placeholders; use the bundled artwork so the library works offline.
+          if (typeof g?.iconUrl === 'string' && g.iconUrl.startsWith('https://images.unsplash.com/')) {
+            g.iconUrl = './default-cover.svg';
+            changed = true;
+          }
+          if (typeof g?.backdropUrl === 'string' && g.backdropUrl.startsWith('https://images.unsplash.com/')) {
+            g.backdropUrl = './default-backdrop.svg';
+            changed = true;
+          }
           if (g && g.path && fs.existsSync(g.path)) {
             presentPaths.push(g.path);
             const isLinux = process.platform === 'linux';

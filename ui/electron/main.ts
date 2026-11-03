@@ -3395,8 +3395,36 @@ ipcMain.handle('anyps5:get-community-prs', async (_, targetRepoArg?: string, for
   });
 });
 
+// Building a pull request compiles code from a contributor's fork; the resulting relinker runs on the user's
+// PC and its libraries are loaded into games. Asked in the main process so no UI path can skip it.
+async function confirmCommunityBuild(prNumbers: number[], headSha?: string): Promise<boolean> {
+  if (!mainWindow) return false;
+  const known = prCache.get('boykopovar/anyps5')?.data || [];
+  const lines = prNumbers.map((n) => {
+    const pr = known.find((p: any) => p.number === n);
+    return pr ? `#${n} "${pr.title}" by ${pr.author?.login || 'unknown'}` : `#${n}`;
+  });
+  if (headSha && headSha !== 'HEAD') lines.push(`Commit: ${headSha}`);
+  const { response } = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    buttons: ['Build', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    title: 'Build Community Code',
+    message: prNumbers.length > 1 ? 'Build these pull requests from unreviewed community code?' : 'Build this pull request from unreviewed community code?',
+    detail:
+      `${lines.join('\n')}\n\n` +
+      "This compiles code from the contributor's fork. The resulting relinker runs on your PC and its libraries are " +
+      'loaded into your games, with the same access to your files as any program you run. Only continue if you trust ' +
+      'the author or have read the changes on GitHub.',
+  });
+  return response === 0;
+}
+
 // Real Pull Request Compilation via Local Builder
 ipcMain.handle('anyps5:build-pr', async (_, { prNumber, headSha, title }: { prNumber: number; headSha: string; title: string }) => {
+  if (!isPrNumber(prNumber)) return { success: false, error: 'Invalid pull request number.' };
+  if (!(await confirmCommunityBuild([prNumber], headSha))) return { success: false, cancelled: true, error: 'Build cancelled.' };
   return getLocalBuilderService().buildPullRequest(
     prNumber,
     headSha,
@@ -3424,6 +3452,8 @@ ipcMain.handle('anyps5:build-pr', async (_, { prNumber, headSha, title }: { prNu
 
 // Delegate download-pr-build to real buildPullRequest
 ipcMain.handle('anyps5:download-pr-build', async (_, { prNumber, artifactUrl, headSha, title }: { prNumber: number; artifactUrl?: string; headSha?: string; title?: string }) => {
+  if (!isPrNumber(prNumber)) return { success: false, error: 'Invalid pull request number.' };
+  if (!(await confirmCommunityBuild([prNumber], headSha))) return { success: false, cancelled: true, error: 'Build cancelled.' };
   return getLocalBuilderService().buildPullRequest(
     prNumber,
     headSha || 'HEAD',
@@ -3505,6 +3535,8 @@ ipcMain.handle('anyps5:merge-and-build-prs', async (_, prNumbers: number[]) => {
   if (!Array.isArray(prNumbers) || prNumbers.length === 0) {
     return { success: false, error: 'No pull requests selected for merge.' };
   }
+  if (!prNumbers.every(isPrNumber)) return { success: false, error: 'Invalid pull request numbers.' };
+  if (!(await confirmCommunityBuild(prNumbers))) return { success: false, cancelled: true, error: 'Build cancelled.' };
 
   return getLocalBuilderService().mergeAndBuildPRs(
     prNumbers,

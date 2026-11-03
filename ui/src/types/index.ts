@@ -281,6 +281,7 @@ export interface MultiPRBuildResult {
   mergedPRs?: number[];
   conflict?: string;
   error?: string;
+  cancelled?: boolean;
 }
 
 export interface MergedBuildInfo {
@@ -347,5 +348,6 @@ export interface BuildResult {
   relinkerPath?: string;
   libsPath?: string;
   error?: string;
+  cancelled?: boolean;
 }
 

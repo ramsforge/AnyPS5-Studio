@@ -343,14 +343,25 @@ ipcMain.handle('anyps5:save-games', async (_, games) => {
   }
 });
 
+// Since Electron 43, pickers open in Downloads unless given a folder, so remember the last one ourselves
+// (falling back to the games folder chosen during setup).
+let lastPickerDir: string | undefined;
+function pickerDefaultPath(): string | undefined {
+  if (lastPickerDir && fs.existsSync(lastPickerDir)) return lastPickerDir;
+  const gamesDir = loadSettings().gamesDirectory;
+  return gamesDir && fs.existsSync(gamesDir) ? gamesDir : undefined;
+}
+
 // IPC Handler: Native Folder Picker
 ipcMain.handle('anyps5:select-folder', async () => {
   if (!mainWindow) return null;
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory'],
     title: 'Select Decrypted PS5 Game Directory',
+    defaultPath: pickerDefaultPath(),
   });
   if (result.canceled || result.filePaths.length === 0) return null;
+  lastPickerDir = path.dirname(result.filePaths[0]);
   return result.filePaths[0];
 });
 
@@ -3223,12 +3234,14 @@ ipcMain.handle('anyps5:select-file', async (_, filters) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     title: 'Select Executable',
+    defaultPath: pickerDefaultPath(),
     filters: (filters as Array<{ name: string; extensions: string[] }>) || [
       { name: 'Executables (*.exe, *.elf, *)', extensions: ['exe', 'elf', '*'] },
       { name: 'All Files', extensions: ['*'] },
     ],
   });
   if (result.canceled || result.filePaths.length === 0) return null;
+  lastPickerDir = path.dirname(result.filePaths[0]);
   return result.filePaths[0];
 });
 

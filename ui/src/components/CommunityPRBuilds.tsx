@@ -230,8 +230,8 @@ export const CommunityPRBuilds: React.FC<CommunityPRBuildsProps> = ({
 
     try {
       const res = await apiBridge.buildPR(pr.number, pr.headSha, pr.title);
-      if (res.success) {
-        audioService.playConfirm();
+      if (res.success || res.cancelled) {
+        if (res.success) audioService.playConfirm();
         setDownloading((prev) => {
           const next = { ...prev };
           delete next[pr.number];
@@ -376,7 +376,7 @@ export const CommunityPRBuilds: React.FC<CommunityPRBuildsProps> = ({
         setSelectedPRNumbers(new Set());
         await loadData();
         await handleActivateMerged(res.buildId);
-      } else {
+      } else if (!res.cancelled) {
         setMergeError(res.error || res.conflict || 'Merge or compilation failed.');
       }
     } catch (err: any) {

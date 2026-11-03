@@ -1,5 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
+import { once } from 'events';
 import { spawn, spawnSync, ChildProcess } from 'child_process';
 import { extractZip } from './archive';
 import readline from 'readline';
@@ -14,6 +16,24 @@ import {
   MultiPRBuildResult,
 } from '../src/types';
 import { RuntimeManager } from './runtimeManager';
+
+// Pinned downloads for the managed Windows toolchain. Hashes come from the publishers: Kitware's
+// cmake-3.31.5-SHA-256.txt, WinLibs' .zip.sha256 (matches GitHub's asset digest) and GitHub's asset digest for
+// Ninja. A download that does not match is deleted before anything is extracted or run.
+const TOOLCHAIN_DOWNLOADS = {
+  ninja: {
+    url: 'https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip',
+    sha256: '07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65',
+  },
+  cmake: {
+    url: 'https://github.com/Kitware/CMake/releases/download/v3.31.5/cmake-3.31.5-windows-x86_64.zip',
+    sha256: 'd4d2d4b9ccd68dae975a066fcd42ea9807ef40f79ee6971923fd3788e7917585',
+  },
+  winlibs: {
+    url: 'https://github.com/brechtsanders/winlibs_mingw/releases/download/15.2.0posix-14.0.0-ucrt-r7/winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-14.0.0-r7.zip',
+    sha256: 'cb2fbad6162540cdf5e1facdce08d4dac359e8cf64f7f696a99274291763b815',
+  },
+};
 
 export class LocalBuilderService {
   private userDataDir: string;
@@ -51,13 +71,15 @@ export class LocalBuilderService {
     const names = [cmd, ...altNames].map((n) => (isWin && !n.endsWith('.exe') ? `${n}.exe` : n));
 
     // 1. Check managed tools directory structure
+    // Install trees first: cmake.exe and g++.exe only work from their own folder (older versions of Studio
+    // copied them into tools/bin, where they cannot find CMAKE_ROOT or the compiler internals).
     const managedSearchDirs = [
-      this.toolsBinDir,
       path.join(this.toolsDir, 'cmake', 'bin'),
       path.join(this.toolsDir, 'mingw64', 'bin'),
       path.join(this.toolsDir, 'ninja'),
       path.join(this.toolsDir, 'git', 'cmd'),
       path.join(this.toolsDir, 'python'),
+      this.toolsBinDir,
     ];
 
     for (const dir of managedSearchDirs) {
@@ -212,7 +234,8 @@ export class LocalBuilderService {
     url: string,
     destPath: string,
     toolName: string,
-    onProgress: (p: ToolchainInstallProgress) => void
+    onProgress: (p: ToolchainInstallProgress) => void,
+    expectedSha256: string
   ): Promise<void> {
     const res = await fetch(url, { headers: { 'User-Agent': 'AnyPS5-Studio-Toolchain' }, redirect: 'follow' });
     if (!res.ok || !res.body) {
@@ -224,12 +247,15 @@ export class LocalBuilderService {
 
     const fileStream = fs.createWriteStream(destPath);
     const reader = res.body.getReader();
+    const hash = crypto.createHash('sha256');
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       if (value) {
-        fileStream.write(Buffer.from(value));
+        const chunk = Buffer.from(value);
+        hash.update(chunk);
+        if (!fileStream.write(chunk)) await once(fileStream, 'drain');
         transferredBytes += value.length;
         const progress = totalBytes > 0 ? Math.min(Math.round((transferredBytes / totalBytes) * 100), 99) : 50;
         onProgress({
@@ -249,6 +275,15 @@ export class LocalBuilderService {
       fileStream.end(() => resolve());
       fileStream.on('error', reject);
     });
+
+    const actualSha256 = hash.digest('hex');
+    if (actualSha256 !== expectedSha256) {
+      try { fs.unlinkSync(destPath); } catch {}
+      throw new Error(
+        `${toolName} download failed verification and was deleted (expected SHA-256 ${expectedSha256}, got ${actualSha256}). ` +
+          'The file may have been corrupted or tampered with; try again later.'
+      );
+    }
   }
 
   /**
@@ -257,6 +292,11 @@ export class LocalBuilderService {
   public async installManagedToolchain(
     onProgress: (p: ToolchainInstallProgress) => void
   ): Promise<{ success: boolean; error?: string }> {
+    if (process.platform !== 'win32') {
+      const error = 'Automatic toolchain install is only available on Windows. Install git, cmake, ninja and a C++ compiler (g++ or clang++) with your package manager.';
+      onProgress({ status: 'error', progress: 0, error });
+      return { success: false, error };
+    }
     try {
       const toolchainStatus = await this.inspectToolchain();
       const needsCMake = !toolchainStatus.tools.find((t) => t.command === 'cmake')?.isAvailable;
@@ -276,8 +316,7 @@ export class LocalBuilderService {
       if (needsNinja && !needsCxx) {
         onProgress({ status: 'downloading', toolName: 'Ninja', progress: 5, message: 'Downloading Ninja build system...' });
         const ninjaZip = path.join(this.toolsDir, 'ninja-temp.zip');
-        const ninjaUrl = 'https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-win.zip';
-        await this.downloadFileWithProgress(ninjaUrl, ninjaZip, 'Ninja', onProgress);
+        await this.downloadFileWithProgress(TOOLCHAIN_DOWNLOADS.ninja.url, ninjaZip, 'Ninja', onProgress, TOOLCHAIN_DOWNLOADS.ninja.sha256);
 
         onProgress({ status: 'extracting', toolName: 'Ninja', progress: 90, message: 'Extracting Ninja...' });
         const ninjaTargetDir = path.join(this.toolsDir, 'ninja');
@@ -295,8 +334,7 @@ export class LocalBuilderService {
       if (needsCMake) {
         onProgress({ status: 'downloading', toolName: 'CMake', progress: 5, message: 'Downloading portable CMake...' });
         const cmakeZip = path.join(this.toolsDir, 'cmake-temp.zip');
-        const cmakeUrl = 'https://github.com/Kitware/CMake/releases/download/v3.31.5/cmake-3.31.5-windows-x86_64.zip';
-        await this.downloadFileWithProgress(cmakeUrl, cmakeZip, 'CMake', onProgress);
+        await this.downloadFileWithProgress(TOOLCHAIN_DOWNLOADS.cmake.url, cmakeZip, 'CMake', onProgress, TOOLCHAIN_DOWNLOADS.cmake.sha256);
 
         onProgress({ status: 'extracting', toolName: 'CMake', progress: 90, message: 'Extracting CMake...' });
         const cmakeExtractDir = path.join(this.toolsDir, 'cmake-extracted');
@@ -306,9 +344,6 @@ export class LocalBuilderService {
         // Find bin directory inside extracted folder
         const entries = fs.readdirSync(cmakeExtractDir);
         const rootFolder = entries.find((e) => e.toLowerCase().startsWith('cmake-'));
-        const sourceBin = rootFolder
-          ? path.join(cmakeExtractDir, rootFolder, 'bin')
-          : path.join(cmakeExtractDir, 'bin');
 
         const destCMake = path.join(this.toolsDir, 'cmake');
         if (fs.existsSync(destCMake)) {
@@ -320,12 +355,6 @@ export class LocalBuilderService {
           fs.renameSync(cmakeExtractDir, destCMake);
         }
         try { fs.rmSync(cmakeExtractDir, { recursive: true, force: true }); } catch {}
-
-        // Copy cmake.exe to tools/bin
-        const cmakeExe = path.join(destCMake, 'bin', 'cmake.exe');
-        if (fs.existsSync(cmakeExe)) {
-          fs.copyFileSync(cmakeExe, path.join(this.toolsBinDir, 'cmake.exe'));
-        }
       }
 
       // 3. Download & Install WinLibs GCC 15 + Ninja if C++ compiler is needed
@@ -337,9 +366,7 @@ export class LocalBuilderService {
           message: 'Downloading WinLibs MinGW-W64 GCC 15 + Ninja portable toolchain...',
         });
         const winlibsZip = path.join(this.toolsDir, 'winlibs-temp.zip');
-        const winlibsUrl =
-          'https://github.com/brechtsanders/winlibs_mingw/releases/download/15.2.0posix-14.0.0-ucrt-r7/winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-14.0.0-r7.zip';
-        await this.downloadFileWithProgress(winlibsUrl, winlibsZip, 'WinLibs MinGW-W64 GCC', onProgress);
+        await this.downloadFileWithProgress(TOOLCHAIN_DOWNLOADS.winlibs.url, winlibsZip, 'WinLibs MinGW-W64 GCC', onProgress, TOOLCHAIN_DOWNLOADS.winlibs.sha256);
 
         onProgress({
           status: 'extracting',
@@ -349,19 +376,7 @@ export class LocalBuilderService {
         });
         await extractZip(winlibsZip, this.toolsDir);
         try { fs.unlinkSync(winlibsZip); } catch {}
-
-        // Ensure binaries in tools/bin
-        const mingwBin = path.join(this.toolsDir, 'mingw64', 'bin');
-        if (fs.existsSync(mingwBin)) {
-          const filesToCopy = ['g++.exe', 'gcc.exe', 'ninja.exe', 'make.exe'];
-          for (const f of filesToCopy) {
-            const src = path.join(mingwBin, f);
-            const dst = path.join(this.toolsBinDir, f);
-            if (fs.existsSync(src)) {
-              try { fs.copyFileSync(src, dst); } catch {}
-            }
-          }
-        }
+        // g++/gcc/ninja are used from tools/mingw64/bin directly; copies elsewhere cannot find the compiler internals.
       }
 
       onProgress({
@@ -514,12 +529,12 @@ export class LocalBuilderService {
    */
   private getToolchainEnv(extraEnv?: Record<string, string>): Record<string, string> {
     const managedPaths = [
-      this.toolsBinDir,
       path.join(this.toolsDir, 'cmake', 'bin'),
       path.join(this.toolsDir, 'ninja'),
       path.join(this.toolsDir, 'mingw64', 'bin'),
       path.join(this.toolsDir, 'git', 'cmd'),
       path.join(this.toolsDir, 'git', 'bin'),
+      this.toolsBinDir,
     ].filter((p) => fs.existsSync(p));
 
     const existingPath = process.env.PATH || '';
@@ -1095,6 +1110,14 @@ export class LocalBuilderService {
       });
 
       await this.runProcess('git', ['checkout', '-f', branchName], this.sourceDir, logWrapper);
+
+      // The user confirmed a specific commit; refuse to build if the author pushed something else since.
+      if (headSha !== 'HEAD') {
+        const fetchedSha = this.runGit(['rev-parse', 'HEAD']).stdout.trim().toLowerCase();
+        if (!fetchedSha.startsWith(headSha.toLowerCase())) {
+          throw new Error(`PR #${prNumber} changed since it was shown (expected ${headSha}, fetched ${fetchedSha.slice(0, 7)}). Refresh the list and review the new changes before building.`);
+        }
+      }
 
       // 5. Update submodules
       onStatus({

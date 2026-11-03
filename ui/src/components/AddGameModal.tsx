@@ -13,6 +13,10 @@ import {
 } from 'lucide-react';
 import { GameItem, DiscoveredGameCandidate } from '../types';
 import { apiBridge } from '../services/apiBridge';
+
+// Shipped with the app (public/), so imported titles without artwork still look right offline.
+const DEFAULT_COVER = './default-cover.svg';
+const DEFAULT_BACKDROP = './default-backdrop.svg';
 import { audioService } from '../services/audioService';
 
 interface AddGameModalProps {
@@ -38,8 +42,8 @@ export const AddGameModal: React.FC<AddGameModalProps> = ({
   const [title, setTitle] = useState<string>('');
   const [titleId, setTitleId] = useState<string>('PPSA');
   const [folderPath, setFolderPath] = useState<string>('C:/Games/PS5/NewTitle');
-  const [iconUrl, setIconUrl] = useState<string>('https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=400&q=80');
-  const [backdropUrl, setBackdropUrl] = useState<string>('https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1920&q=80');
+  const [iconUrl, setIconUrl] = useState<string>(DEFAULT_COVER);
+  const [backdropUrl, setBackdropUrl] = useState<string>(DEFAULT_BACKDROP);
   const [sizeBytes, setSizeBytes] = useState<number>(0);
   const [detectedBadge, setDetectedBadge] = useState<string | null>(null);
 
@@ -117,8 +121,8 @@ export const AddGameModal: React.FC<AddGameModalProps> = ({
       path: folderPath.trim(),
       executableName: isLinuxHost ? 'app.elf' : 'eboot.bin',
       targetPlatform: isLinuxHost ? 'linux' : 'windows',
-      iconUrl: iconUrl || 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=400&q=80',
-      backdropUrl: backdropUrl || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1920&q=80',
+      iconUrl: iconUrl || DEFAULT_COVER,
+      backdropUrl: backdropUrl || DEFAULT_BACKDROP,
       sizeBytes: sizeBytes || 0,
       sdkVersion: '05.000.001',
       minHostCpu: 'AMD Zen2 / Intel AVX2',
@@ -218,8 +222,8 @@ export const AddGameModal: React.FC<AddGameModalProps> = ({
       path: c.path,
       executableName: isLinuxHost ? 'app.elf' : 'eboot.bin',
       targetPlatform: isLinuxHost ? 'linux' : 'windows',
-      iconUrl: c.iconUrl || 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=400&q=80',
-      backdropUrl: c.backdropUrl || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1920&q=80',
+      iconUrl: c.iconUrl || DEFAULT_COVER,
+      backdropUrl: c.backdropUrl || DEFAULT_BACKDROP,
       sizeBytes: c.sizeBytes || 0,
       sdkVersion: '05.000.001',
       minHostCpu: 'AMD Zen2 / Intel AVX2',

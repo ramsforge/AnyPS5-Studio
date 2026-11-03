@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn, spawnSync, execSync, ChildProcess } from 'child_process';
+import { spawn, spawnSync, ChildProcess } from 'child_process';
+import { extractZip } from './archive';
 import readline from 'readline';
 import {
   ToolchainStatus,
@@ -72,10 +73,7 @@ export class LocalBuilderService {
     // 2. Check system PATH via where (Windows) or which (Unix)
     for (const name of names) {
       try {
-        const checkCmd = isWin ? `where.exe "${name}"` : `which "${name}"`;
-        const out = execSync(checkCmd, { stdio: ['pipe', 'pipe', 'pipe'] })
-          .toString()
-          .trim();
+        const out = (spawnSync(isWin ? 'where.exe' : 'which', [name], { encoding: 'utf8', windowsHide: true }).stdout || '').trim();
         const firstLine = out.split(/\r?\n/)[0]?.trim();
         if (firstLine && fs.existsSync(firstLine)) {
           const isManaged = firstLine.toLowerCase().startsWith(this.toolsDir.toLowerCase());
@@ -254,30 +252,6 @@ export class LocalBuilderService {
   }
 
   /**
-   * Extract zip archive using native tar or PowerShell
-   */
-  private extractArchive(zipPath: string, destDir: string): void {
-    if (!fs.existsSync(destDir)) {
-      fs.mkdirSync(destDir, { recursive: true });
-    }
-
-    if (process.platform === 'win32') {
-      try {
-        execSync(`tar -xf "${zipPath}" -C "${destDir}"`, { stdio: 'pipe' });
-        return;
-      } catch {
-        // Fallback to PowerShell Expand-Archive
-        execSync(
-          `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${destDir}' -Force"`,
-          { stdio: 'pipe' }
-        );
-      }
-    } else {
-      execSync(`unzip -q -o "${zipPath}" -d "${destDir}"`, { stdio: 'pipe' });
-    }
-  }
-
-  /**
    * Install managed portable toolchain into %APPDATA%/anyps5-ui/tools/
    */
   public async installManagedToolchain(
@@ -307,7 +281,7 @@ export class LocalBuilderService {
 
         onProgress({ status: 'extracting', toolName: 'Ninja', progress: 90, message: 'Extracting Ninja...' });
         const ninjaTargetDir = path.join(this.toolsDir, 'ninja');
-        this.extractArchive(ninjaZip, ninjaTargetDir);
+        await extractZip(ninjaZip, ninjaTargetDir);
         try { fs.unlinkSync(ninjaZip); } catch {}
 
         // Copy ninja.exe to tools/bin
@@ -326,7 +300,7 @@ export class LocalBuilderService {
 
         onProgress({ status: 'extracting', toolName: 'CMake', progress: 90, message: 'Extracting CMake...' });
         const cmakeExtractDir = path.join(this.toolsDir, 'cmake-extracted');
-        this.extractArchive(cmakeZip, cmakeExtractDir);
+        await extractZip(cmakeZip, cmakeExtractDir);
         try { fs.unlinkSync(cmakeZip); } catch {}
 
         // Find bin directory inside extracted folder
@@ -373,7 +347,7 @@ export class LocalBuilderService {
           progress: 90,
           message: 'Extracting WinLibs MinGW-W64 compiler & Ninja tools...',
         });
-        this.extractArchive(winlibsZip, this.toolsDir);
+        await extractZip(winlibsZip, this.toolsDir);
         try { fs.unlinkSync(winlibsZip); } catch {}
 
         // Ensure binaries in tools/bin
@@ -589,7 +563,7 @@ export class LocalBuilderService {
     const res = spawnSync('git', args, {
       cwd,
       env,
-      shell: process.platform === 'win32',
+      windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
       encoding: 'utf8',
     });
@@ -687,10 +661,11 @@ export class LocalBuilderService {
     return new Promise((resolve, reject) => {
       const env = this.getToolchainEnv(extraEnv);
 
+      // No shell: arguments reach git/cmake exactly as given instead of being re-parsed by cmd.exe.
       const child = spawn(command, args, {
         cwd,
         env,
-        shell: process.platform === 'win32',
+        windowsHide: true,
       });
       this.activeProcess = child;
 
@@ -731,7 +706,7 @@ export class LocalBuilderService {
     if (this.activeProcess && !this.activeProcess.killed) {
       try {
         if (process.platform === 'win32' && this.activeProcess.pid) {
-          execSync(`taskkill /pid ${this.activeProcess.pid} /T /F`, { stdio: 'ignore' });
+          spawnSync('taskkill', ['/pid', String(this.activeProcess.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
         } else {
           this.activeProcess.kill('SIGTERM');
         }

@@ -15,6 +15,9 @@ export interface GameItem {
   iconUrl: string;
   backdropUrl: string;
   lastPlayed?: string;
+  // Recorded by the launcher when a session ends.
+  playTimeSeconds?: number;
+  lastPlayedAt?: string;
   playTime?: string;
   sizeBytes: number;
   sdkVersion: string;

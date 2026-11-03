@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TopBar } from './components/TopBar';
 import { HomeScreen } from './components/HomeScreen';
 import { RelinkerStudio } from './components/RelinkerStudio';
@@ -16,6 +16,7 @@ import { GameItem } from './types';
 import { apiBridge } from './services/apiBridge';
 import { audioService } from './services/audioService';
 import { CheckCircle2, X } from 'lucide-react';
+import { NavDirection, activateFocused, currentScope, goBack, markGamepadInput, moveFocus, stepSelect } from './services/focusNav';
 
 import { INITIAL_GAMES } from './services/sampleData';
 
@@ -88,6 +89,20 @@ export const App: React.FC = () => {
     initApp();
   }, []);
 
+  // Playtime is recorded by the main process when a game exits; reload the library so it shows up.
+  useEffect(() => {
+    const reload = () => apiBridge.getGames().then(setGames).catch(() => {});
+    const unsub = apiBridge.onGameExit(() => reload());
+    if (!activeRunningGame) {
+      const timer = setTimeout(reload, 400);
+      return () => {
+        clearTimeout(timer);
+        unsub();
+      };
+    }
+    return unsub;
+  }, [activeRunningGame]);
+
   // Listen for background auto-updates
   useEffect(() => {
     const unsub = apiBridge.onUpdateStatus((status) => {
@@ -107,6 +122,23 @@ export const App: React.FC = () => {
   // Keyboard navigation for authentic console feel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Arrow keys move focus like the D-pad inside dialogs, on non-game tabs, and once focus has left the game row.
+      const arrows: Record<string, NavDirection> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      const typing = Boolean(target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+      const scope = currentScope();
+      const onRow = !target || target === document.body || target.hasAttribute('data-game-tile');
+      if (e.key === 'Escape' && scope) {
+        goBack();
+        return;
+      }
+      if (arrows[e.key] && !typing && (scope || activeTab !== 'games' || !onRow || e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        if (moveFocus(arrows[e.key], scope || document)) {
+          e.preventDefault();
+          markGamepadInput(true);
+        }
+        return;
+      }
       if (isAddGameOpen || activeRunningGame || isSetupWizardOpen || isSystemUpdatedOpen) return;
 
       // Tab switching via Q/E or [ / ]
@@ -169,67 +201,79 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [games, selectedGameIndex, activeTab, isAddGameOpen, activeRunningGame, availableTabs, isSetupWizardOpen, isSystemUpdatedOpen]);
 
-  // Gamepad API Polling
+  // Latest values for the controller loop, which runs once for the app's lifetime.
+  const navRef = useRef({ games, selectedGameIndex, activeTab, availableTabs });
+  navRef.current = { games, selectedGameIndex, activeTab, availableTabs };
+
+  // Controller input (standard mapping): D-pad / left stick move focus, Cross presses, Circle goes back,
+  // L1 / R1 switch tabs. On the Games tab with a game tile focused, Left/Right pick a game and Cross plays it.
   useEffect(() => {
-    let animationFrameId: number;
-    let lastButtonState = false;
-    let lastBumperState = false;
+    let frame = 0;
+    const nextFire: Record<string, number> = {};
+    // Fires on press, then repeats while held (console-style auto-repeat for D-pad and stick).
+    const fired = (key: string, down: boolean, now: number, repeat: boolean) => {
+      if (!down) {
+        delete nextFire[key];
+        return false;
+      }
+      if (nextFire[key] === undefined) {
+        nextFire[key] = now + 380;
+        return true;
+      }
+      if (repeat && now >= nextFire[key]) {
+        nextFire[key] = now + 110;
+        return true;
+      }
+      return false;
+    };
+    const onTileOrNothing = () => {
+      const el = document.activeElement as HTMLElement | null;
+      return !el || el === document.body || el.hasAttribute('data-game-tile');
+    };
+    const focusSelectedTile = () => {
+      const tiles = document.querySelectorAll<HTMLElement>('[data-game-tile]');
+      tiles[navRef.current.selectedGameIndex]?.focus({ preventScroll: true });
+    };
 
-    const pollGamepads = () => {
-      const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-      const gp = gamepads[0];
-      setGamepadConnected(Boolean(gp));
+    const poll = (now: number) => {
+      const pad = Array.from(navigator.getGamepads ? navigator.getGamepads() : []).find((p) => p && p.connected) || null;
+      setGamepadConnected(Boolean(pad));
 
-      if (gp && !isAddGameOpen && activeTab !== 'settings' && !activeRunningGame && !isSetupWizardOpen && !isSystemUpdatedOpen) {
-        // L1 / LB (Button 4) and R1 / RB (Button 5) tab navigation
-        const l1Pressed = gp.buttons[4]?.pressed;
-        const r1Pressed = gp.buttons[5]?.pressed;
+      // Ignore the controller while Studio is in the background (e.g. a game is being played).
+      if (pad && document.hasFocus()) {
+        const btn = (i: number) => Boolean(pad.buttons[i]?.pressed);
+        const ax = (i: number) => pad.axes[i] || 0;
+        const dirs = {
+          up: btn(12) || ax(1) < -0.6,
+          down: btn(13) || ax(1) > 0.6,
+          left: btn(14) || ax(0) < -0.6,
+          right: btn(15) || ax(0) > 0.6,
+        };
+        const { games: list, activeTab: tab, availableTabs: tabs } = navRef.current;
+        const scope = currentScope();
+        const onHome = tab === 'games' && !scope;
+        let used = false;
 
-        if (l1Pressed && !lastBumperState) {
-          lastBumperState = true;
-          setActiveTab((prev) => {
-            const idx = availableTabs.indexOf(prev as any);
-            const currentIdx = idx === -1 ? 0 : idx;
-            const next = availableTabs[(currentIdx - 1 + availableTabs.length) % availableTabs.length];
+        for (const dir of ['up', 'down', 'left', 'right'] as NavDirection[]) {
+          if (!fired(dir, dirs[dir], now, true)) continue;
+          used = true;
+          if (onHome && onTileOrNothing() && (dir === 'left' || dir === 'right') && list.length > 0) {
+            setSelectedGameIndex((prev) => {
+              const next = (prev + (dir === 'right' ? 1 : -1) + list.length) % list.length;
+              requestAnimationFrame(() => document.querySelectorAll<HTMLElement>('[data-game-tile]')[next]?.focus({ preventScroll: true }));
+              return next;
+            });
             audioService.playNavTick();
-            return next;
-          });
-        } else if (r1Pressed && !lastBumperState) {
-          lastBumperState = true;
-          setActiveTab((prev) => {
-            const idx = availableTabs.indexOf(prev as any);
-            const currentIdx = idx === -1 ? 0 : idx;
-            const next = availableTabs[(currentIdx + 1) % availableTabs.length];
-            audioService.playNavTick();
-            return next;
-          });
-        } else if (!l1Pressed && !r1Pressed) {
-          lastBumperState = false;
+          } else {
+            if (onHome && document.activeElement === document.body) focusSelectedTile();
+            if (stepSelect(dir) || moveFocus(dir, scope || document)) audioService.playNavTick();
+          }
         }
 
-        // D-pad & Sticks when on games tab
-        if (activeTab === 'games' && games.length > 0) {
-          const rightPressed = gp.buttons[15]?.pressed || gp.axes[0] > 0.5;
-          const leftPressed = gp.buttons[14]?.pressed || gp.axes[0] < -0.5;
-          const crossPressed = gp.buttons[0]?.pressed; // Cross / A
-
-          if (rightPressed && !lastButtonState) {
-            lastButtonState = true;
-            setSelectedGameIndex((prev) => {
-              const next = (prev + 1) % games.length;
-              audioService.playNavTick();
-              return next;
-            });
-          } else if (leftPressed && !lastButtonState) {
-            lastButtonState = true;
-            setSelectedGameIndex((prev) => {
-              const next = (prev - 1 + games.length) % games.length;
-              audioService.playNavTick();
-              return next;
-            });
-          } else if (crossPressed && !lastButtonState) {
-            lastButtonState = true;
-            const game = games[selectedGameIndex];
+        if (fired('cross', btn(0), now, false)) {
+          used = true;
+          if (onHome && onTileOrNothing()) {
+            const game = list[navRef.current.selectedGameIndex];
             if (game) {
               if (game.status === 'ported') {
                 audioService.playLaunch();
@@ -239,18 +283,47 @@ export const App: React.FC = () => {
                 setActiveTab('relinker');
               }
             }
-          } else if (!rightPressed && !leftPressed && !crossPressed) {
-            lastButtonState = false;
+          } else if (activateFocused()) {
+            audioService.playConfirm();
           }
         }
-      }
 
-      animationFrameId = requestAnimationFrame(pollGamepads);
+        if (fired('circle', btn(1), now, false)) {
+          used = true;
+          audioService.playCancel();
+          if (onHome) focusSelectedTile();
+          else goBack();
+        }
+
+        for (const [key, step] of [['l1', -1], ['r1', 1]] as const) {
+          if (fired(key, btn(key === 'l1' ? 4 : 5), now, false) && !scope) {
+            used = true;
+            setActiveTab((prev) => {
+              const idx = Math.max(0, tabs.indexOf(prev as (typeof tabs)[number]));
+              return tabs[(idx + step + tabs.length) % tabs.length];
+            });
+            audioService.playNavTick();
+          }
+        }
+
+        if (used) markGamepadInput(true);
+      } else {
+        for (const key of Object.keys(nextFire)) delete nextFire[key];
+      }
+      frame = requestAnimationFrame(poll);
     };
 
-    animationFrameId = requestAnimationFrame(pollGamepads);
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [games, selectedGameIndex, activeTab, isAddGameOpen, activeRunningGame, availableTabs, isSetupWizardOpen, isSystemUpdatedOpen]);
+    // The focus outline is for controller and arrow-key users; hide it again as soon as the mouse is used.
+    const onMouse = () => markGamepadInput(false);
+    window.addEventListener('mousedown', onMouse);
+    window.addEventListener('mousemove', onMouse);
+    frame = requestAnimationFrame(poll);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('mousedown', onMouse);
+      window.removeEventListener('mousemove', onMouse);
+    };
+  }, []);
 
   const handleUpdateGameStatus = (gameId: string, status: 'ported', updatedGame?: GameItem) => {
     setGames((prev) => {

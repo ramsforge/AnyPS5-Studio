@@ -59,3 +59,11 @@
     linear-gradient(180deg, rgba(4, 6, 10, 0.8) 0%, rgba(4, 6, 10, 0.3) 30%, rgba(4, 6, 10, 0.85) 85%, #04060a 100%),
     linear-gradient(90deg, rgba(4, 6, 10, 0.95) 0%, rgba(4, 6, 10, 0.7) 45%, rgba(4, 6, 10, 0.2) 100%);
 }
+
+/* Controller / arrow-key focus: a white console-style outline on whatever the D-pad has selected.
+   Only shown after controller or arrow input, so mouse users never see it. */
+html[data-gamepad-nav] :focus {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.12);
+}

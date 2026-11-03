@@ -24,7 +24,7 @@ export const SystemUpdatedModal: React.FC<SystemUpdatedModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in select-none">
+    <div data-nav-scope className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in select-none">
       <div className="w-full max-w-lg bg-[#0c111c] border border-white/15 rounded-2xl shadow-2xl p-6 text-slate-100 space-y-6 animate-scale-up">
         {/* Header */}
         <div className="flex items-start space-x-3.5">

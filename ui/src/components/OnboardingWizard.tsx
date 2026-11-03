@@ -111,7 +111,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-between bg-[#04060a] text-slate-100 select-none overflow-hidden animate-fade-in">
+    <div data-nav-scope className="fixed inset-0 z-50 flex flex-col justify-between bg-[#04060a] text-slate-100 select-none overflow-hidden animate-fade-in">
       {/* Background radial ambiance */}
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_80%_60%_at_50%_-20%,rgba(0,112,209,0.15),rgba(255,255,255,0))]" />
       <div className="absolute -top-32 -left-32 w-96 h-96 bg-[#0070d1]/10 rounded-full blur-3xl pointer-events-none" />

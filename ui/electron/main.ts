@@ -69,7 +69,9 @@ function createWindow() {
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const isDev = (process.env.VITE_DEV_SERVER_URL && url.startsWith(process.env.VITE_DEV_SERVER_URL)) || url.startsWith('http://localhost:5173');
-    if (isDev) return;
+    // Reloading the app's own page (e.g. from the crash screen) is fine; anything else is blocked.
+    const isOwnPage = url.split('#')[0] === mainWindow?.webContents.getURL().split('#')[0];
+    if (isDev || isOwnPage) return;
     event.preventDefault();
     if (url.startsWith('http://') || url.startsWith('https://')) {
       shell.openExternal(url);
@@ -262,9 +264,45 @@ ipcMain.handle('anyps5:get-games', async () => {
   try {
     if (fs.existsSync(gamesStorePath)) {
       const data = fs.readFileSync(gamesStorePath, 'utf8');
-      const games = JSON.parse(data);
-      if (Array.isArray(games)) {
-        let changed = false;
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        // Fill in fields the UI relies on so one hand-edited or older entry cannot break the whole library.
+        const games = parsed.filter((g) => g && typeof g === 'object' && typeof g.path === 'string');
+        let changed = games.length !== parsed.length;
+        for (const [i, g] of games.entries()) {
+          const defaults: Record<string, unknown> = {
+            id: `game-${Date.now()}-${i}`,
+            title: path.basename(g.path) || 'Untitled',
+            titleId: '',
+            version: '01.00',
+            category: 'game',
+            status: 'ready_to_relink',
+            executableName: process.platform === 'win32' ? 'app.exe' : 'app.elf',
+            targetPlatform: process.platform === 'win32' ? 'windows' : 'linux',
+            iconUrl: './default-cover.svg',
+            backdropUrl: './default-backdrop.svg',
+          };
+          for (const [key, value] of Object.entries(defaults)) {
+            if (typeof g[key] !== 'string' || !g[key]) {
+              g[key] = value;
+              changed = true;
+            }
+          }
+          const c = g.compatibility && typeof g.compatibility === 'object' ? g.compatibility : {};
+          const compatibility = {
+            status: typeof c.status === 'string' ? c.status : 'untested',
+            score: Number.isFinite(c.score) ? c.score : 0,
+            resolvedNids: Number.isFinite(c.resolvedNids) ? c.resolvedNids : 0,
+            totalNids: Number.isFinite(c.totalNids) ? c.totalNids : 0,
+            unresolvedModules: Array.isArray(c.unresolvedModules) ? c.unresolvedModules : [],
+            missingNids: Array.isArray(c.missingNids) ? c.missingNids : [],
+            amdInstructionsDetected: Number.isFinite(c.amdInstructionsDetected) ? c.amdInstructionsDetected : 0,
+          };
+          if (JSON.stringify(compatibility) !== JSON.stringify(g.compatibility)) {
+            g.compatibility = compatibility;
+            changed = true;
+          }
+        }
         const presentPaths: string[] = [];
         for (const g of games) {
           // Older versions stored remote Unsplash placeholders; use the bundled artwork so the library works offline.
@@ -316,6 +354,7 @@ ipcMain.handle('anyps5:get-games', async () => {
         }
         if (changed) {
           try {
+            if (games.length !== parsed.length) fs.writeFileSync(`${gamesStorePath}.before-repair`, data, 'utf8');
             fs.writeFileSync(gamesStorePath, JSON.stringify(games, null, 2), 'utf8');
           } catch (writeErr) {
             console.error('Failed to update games.json with accurate sizes:', writeErr);

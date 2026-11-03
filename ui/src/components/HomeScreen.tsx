@@ -17,7 +17,8 @@ import {
   FolderSearch,
   Plus,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Undo2
 } from 'lucide-react';
 import { GameItem, RuntimeProfile, PlaygoOverrideInfo, PlaygoMode } from '../types';
 import { audioService } from '../services/audioService';
@@ -50,7 +51,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 }) => {
   const [showTechnicalDrawer, setShowTechnicalDrawer] = useState<boolean>(false);
   const [sampleNoticeGame, setSampleNoticeGame] = useState<GameItem | null>(null);
+  const [layoutNotice, setLayoutNotice] = useState<string | null>(null);
   const selectedGame = games[selectedGameIndex] || games[0];
+
+  useEffect(() => setLayoutNotice(null), [selectedGame?.id, showTechnicalDrawer]);
+
+  const handleRestoreLayout = async () => {
+    if (!selectedGame) return;
+    const res = await apiBridge.restoreGameLayout(selectedGame.path);
+    if (res.cancelled) return;
+    setLayoutNotice(res.success ? `Restored ${res.restored ?? 0} item(s) to their original location.` : res.error || 'Restore failed.');
+  };
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const [availableRuntimes, setAvailableRuntimes] = useState<RuntimeProfile[]>([]);
@@ -572,6 +583,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               >
                 Open Full NID Audit
               </button>
+
+              {!selectedGame.isSample && (
+                <button
+                  onClick={handleRestoreLayout}
+                  className="w-full py-2 rounded-full bg-white/5 hover:bg-white/10 text-neutral-300 font-semibold text-xs tracking-wide border border-white/10 transition-colors flex items-center justify-center space-x-1.5"
+                >
+                  <Undo2 className="w-3.5 h-3.5" />
+                  <span>Restore Original Folder Layout</span>
+                </button>
+              )}
+              {layoutNotice && (
+                <p className="text-[11px] text-neutral-400 text-center leading-relaxed">{layoutNotice}</p>
+              )}
 
               {onDeleteGame && (
                 <button

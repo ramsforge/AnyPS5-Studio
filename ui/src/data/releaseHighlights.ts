@@ -138,6 +138,32 @@ export const RELEASE_HIGHLIGHTS_MAP: Record<string, ReleaseHighlight[]> = {
       title: 'Chunk Loop Diagnostics',
       description: 'Added runtime detection and in-modal remedies for missing chunk manifests and out-of-memory allocation loops.'
     }
+  ],
+  '1.5.0': [
+    {
+      title: 'Full Controller Navigation',
+      description: 'Use the D-pad and Cross / Circle everywhere: menus, Settings, dialogs and setup. Controller rumble follows Haptic Feedback.'
+    },
+    {
+      title: 'Playtime Tracking',
+      description: 'Total playtime and your last session are now recorded for every game.'
+    },
+    {
+      title: 'Safer Game Folders',
+      description: 'Studio only reorganizes real game dumps, never moves your game assets by mistake, and can restore the original folder layout.'
+    },
+    {
+      title: 'Faster and Fully Offline',
+      description: 'No more freezes while loading large libraries or launching games, and fonts and artwork no longer need an internet connection.'
+    },
+    {
+      title: 'Security Hardening',
+      description: 'Electron 44, a strict content security policy, verified toolchain downloads, a warning before building community code, and safer GitHub sign-in.'
+    },
+    {
+      title: 'Honest Diagnostics and Fixes',
+      description: 'Real hardware checks, a real NID audit (or a clear reason why not), working Merged Builds, Settings that take effect, and many launcher fixes.'
+    }
   ]
 };
 

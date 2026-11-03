@@ -95,12 +95,12 @@ Inspect imported function NIDs, discover missing middleware stubs, and manage in
 ### Installation
 
 #### Windows
-1. Download `AnyPS5-Studio-Setup-1.4.7.exe` from the [Releases](https://github.com/ramsforge/AnyPS5-Studio/releases) page.
+1. Download `AnyPS5-Studio-Setup-1.5.0.exe` from the [Releases](https://github.com/ramsforge/AnyPS5-Studio/releases) page.
 2. Run the 1-click silent installer to install AnyPS5 Studio. The installer automatically provisions the static relinker engine (`relinker.exe`), clean-room PlayStation 5 system libraries (`libs/`), and graphics translation DLLs without administrative UAC prompts.
 
 #### Linux
 
-AnyPS5 Studio is distributed as a standalone 64-bit AppImage (`AnyPS5-Studio-1.4.7.AppImage`). It bundles the native static relinker, system PRX libraries, and Vulkan runtime layers.
+AnyPS5 Studio is distributed as a standalone 64-bit AppImage (`AnyPS5-Studio-1.5.0.AppImage`). It bundles the native static relinker, system PRX libraries, and Vulkan runtime layers.
 
 ##### 1. Prerequisite: Install FUSE 2 Library
 AppImage packages use FUSE (Filesystem in Userspace) to mount and execute. Modern Linux distributions (Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, Debian 12+, Fedora, Arch Linux) default to FUSE 3 and do not include the legacy FUSE 2 library by default.
@@ -135,17 +135,17 @@ Install FUSE 2 for your distribution:
   ```
 
 ##### 2. Download and Mark Executable
-1. Download the latest `AnyPS5-Studio-1.4.7.AppImage` from [GitHub Releases](https://github.com/ramsforge/AnyPS5-Studio/releases).
+1. Download the latest `AnyPS5-Studio-1.5.0.AppImage` from [GitHub Releases](https://github.com/ramsforge/AnyPS5-Studio/releases).
 2. Open a terminal in the folder containing the downloaded file (e.g. `cd ~/Downloads`).
 3. Make the AppImage executable:
    ```bash
-   chmod +x AnyPS5-Studio-1.4.7.AppImage
+   chmod +x AnyPS5-Studio-1.5.0.AppImage
    ```
 
 ##### 3. Launch the Studio
 Run the AppImage from your terminal:
 ```bash
-./AnyPS5-Studio-1.4.7.AppImage
+./AnyPS5-Studio-1.5.0.AppImage
 ```
 Or double-click the file in your desktop file manager (GNOME Files, Dolphin, Thunar).
 
@@ -155,13 +155,13 @@ For seamless desktop menu integration with your application launcher:
 - Or place the AppImage in your user binary path:
   ```bash
   mkdir -p ~/.local/bin
-  mv AnyPS5-Studio-1.4.7.AppImage ~/.local/bin/anyps5-studio
+  mv AnyPS5-Studio-1.5.0.AppImage ~/.local/bin/anyps5-studio
   ```
 
 ##### 5. Fallback for Restricted Environments (Docker, WSL2, Sandboxes)
 If you are running in an environment where FUSE mounting is disallowed or restricted, you can run AnyPS5 Studio directly by extracting the AppImage contents:
 ```bash
-./AnyPS5-Studio-1.4.7.AppImage --appimage-extract
+./AnyPS5-Studio-1.5.0.AppImage --appimage-extract
 ./squashfs-root/anyps5-ui
 ```
 

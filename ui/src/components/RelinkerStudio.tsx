@@ -123,21 +123,23 @@ export const RelinkerStudio: React.FC<RelinkerStudioProps> = ({
   // Perform Real System Detection
   const runSystemDetection = async () => {
     try {
-      const data = await apiBridge.getTelemetry();
+      const [data, settings] = await Promise.all([apiBridge.getTelemetry(), apiBridge.getSettings()]);
       setTelemetry(data);
 
       const isLinux = data?.osName?.toLowerCase().includes('linux') || (typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux'));
-      const defaultTarget = isLinux ? 'linux' : 'windows';
+      const target = (settings.defaultTarget as RelinkerOptions['target']) || (isLinux ? 'linux' : 'windows');
+      // Settings > CPU: "auto" follows the detected host; "amd" means no Zen 2 lowering.
+      const chosenCpu = settings.cpuFix && settings.cpuFix !== 'auto'
+        ? (settings.cpuFix === 'amd' ? 'none' : settings.cpuFix)
+        : data.recommendedCpuTranslation || 'intel';
 
-      if (data.recommendedCpuTranslation) {
-        setOptions(prev => ({
-          ...prev,
-          cpuTranslation: data.recommendedCpuTranslation || 'intel',
-          target: defaultTarget,
-          subsystem: 'gui',
-          unusedFilter: 0,
-        }));
-      }
+      setOptions(prev => ({
+        ...prev,
+        cpuTranslation: chosenCpu as RelinkerOptions['cpuTranslation'],
+        target,
+        subsystem: 'gui',
+        unusedFilter: 0,
+      }));
     } catch (err: any) {
       console.warn('System telemetry check:', err);
     }
@@ -145,6 +147,9 @@ export const RelinkerStudio: React.FC<RelinkerStudioProps> = ({
 
   useEffect(() => {
     runSystemDetection();
+    // Pick up Default Target / CPU changes saved in Settings without restarting.
+    window.addEventListener('anyps5:settings-saved', runSystemDetection);
+    return () => window.removeEventListener('anyps5:settings-saved', runSystemDetection);
   }, []);
 
   // Close game switcher when clicking outside

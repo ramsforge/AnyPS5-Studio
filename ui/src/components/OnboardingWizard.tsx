@@ -11,10 +11,26 @@ import {
   Sparkles,
   ShieldCheck,
   Disc,
+  AlertTriangle,
 } from 'lucide-react';
 import { SystemTelemetry, ResolvedRuntime } from '../types';
 import { apiBridge } from '../services/apiBridge';
 import { audioService } from '../services/audioService';
+
+// Shows the result of a real host check: green when it passed, amber when it failed, grey while unknown.
+const CheckBadge: React.FC<{ ok: boolean | null | undefined; label: string }> = ({ ok, label }) => {
+  const tone = ok === true
+    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+    : ok === false
+      ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+      : 'bg-white/5 border-white/10 text-white/50';
+  return (
+    <div className={`flex items-center space-x-1.5 px-3 py-1 rounded-md border text-[11px] font-medium ${tone}`}>
+      {ok === false ? <AlertTriangle className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+      <span>{label}</span>
+    </div>
+  );
+};
 
 interface OnboardingWizardProps {
   currentVersion: string;
@@ -176,10 +192,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center space-x-1.5 px-3 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-medium">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>AVX2 Compatible</span>
-                  </div>
+                  <CheckBadge
+                    ok={telemetry ? telemetry.avx2 : undefined}
+                    label={!telemetry ? 'Checking...' : telemetry.avx2 === true ? 'AVX2 supported' : telemetry.avx2 === false ? 'No AVX2 support' : 'AVX2 not checked'}
+                  />
                 </div>
 
                 {/* Host GPU */}
@@ -195,10 +211,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center space-x-1.5 px-3 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-medium">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Vulkan 1.3 Ready</span>
-                  </div>
+                  <CheckBadge
+                    ok={telemetry ? telemetry.vulkanAvailable : undefined}
+                    label={!telemetry ? 'Checking...' : telemetry.vulkanAvailable ? 'Vulkan installed' : 'Vulkan not found'}
+                  />
                 </div>
 
                 {/* System Libraries */}
@@ -210,14 +226,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                     <div>
                       <h4 className="text-xs font-medium text-white">Clean-Room System Libraries</h4>
                       <p className="text-[11px] font-mono text-white/50 mt-0.5">
-                        Core PRX modules (libkernel, libSceAgcDriver, libScePad) verified
+                        {telemetry ? `${telemetry.prxVersion}: ${telemetry.prxCount ?? 0} PRX libraries found` : 'Checking bundled runtime...'}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center space-x-1.5 px-3 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-medium">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>50+ PRXs Ready</span>
-                  </div>
+                  <CheckBadge
+                    ok={telemetry ? (telemetry.prxCount ?? 0) > 0 : undefined}
+                    label={!telemetry ? 'Checking...' : (telemetry.prxCount ?? 0) > 0 ? `${telemetry.prxCount} PRXs` : 'No PRXs found'}
+                  />
                 </div>
               </div>
             </div>
@@ -342,14 +358,19 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 <span className="text-[11px] font-mono tracking-widest uppercase text-emerald-400">Step 4 of 4</span>
                 <h2 className="text-xl font-semibold text-white tracking-wide mt-1">Console Setup Complete</h2>
                 <p className="text-xs text-white/60 mt-1 leading-relaxed">
-                  All system checks passed. AnyPS5 Studio is fully configured and ready to relink and launch titles.
+                  {telemetry?.avx2 === false || telemetry?.vulkanAvailable === false || (telemetry?.prxCount ?? 1) === 0
+                    ? 'Setup is saved, but some host checks failed. Titles may not run until they are fixed; see Hardware Inspection for details.'
+                    : 'AnyPS5 Studio is configured and ready to relink and launch titles.'}
                 </p>
               </div>
 
               <div className="p-5 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-3">
                 <div className="flex items-center space-x-3 text-xs text-white/80">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                  <span>Host hardware validated for AVX2 execution and Vulkan 1.3 acceleration.</span>
+                  <span>
+                    {`CPU: ${telemetry?.avx2 === true ? 'AVX2 supported' : telemetry?.avx2 === false ? 'no AVX2 support' : 'AVX2 not checked'}. `}
+                    {`Graphics: ${telemetry?.vulkanAvailable ? 'Vulkan installed' : 'Vulkan not found'}.`}
+                  </span>
                 </div>
                 <div className="flex items-center space-x-3 text-xs text-white/80">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />

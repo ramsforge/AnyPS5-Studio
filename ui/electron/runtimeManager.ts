@@ -428,15 +428,17 @@ export class RuntimeManager {
     if (match && match.isValid) {
       return match;
     }
+    const fallbackFrom = targetId === 'bundled' ? undefined : { id: targetId, name: match?.name || targetId };
 
     // Failsafe fallback: return bundled runtime
     const bundled = list.find((r) => r.id === 'bundled');
     if (bundled && bundled.isValid) {
-      return bundled;
+      return { ...bundled, fallbackFrom };
     }
 
     // Ultimate fallback to baseline getters
     return {
+      fallbackFrom,
       id: 'bundled',
       name: 'Bundled Stable (v0.1.2) [Fallback]',
       type: 'bundled',

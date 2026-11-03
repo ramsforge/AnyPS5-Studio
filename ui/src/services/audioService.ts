@@ -5,6 +5,19 @@
 class AudioService {
   private ctx: AudioContext | null = null;
   public enabled: boolean = true;
+  public hapticsEnabled: boolean = true;
+
+  // Controller rumble that accompanies each UI sound (Settings > Haptic Feedback), independent of sound on/off.
+  private rumble(duration: number, weak: number, strong = 0) {
+    if (!this.hapticsEnabled || !navigator.getGamepads) return;
+    for (const pad of navigator.getGamepads()) {
+      const actuator = (pad as (Gamepad & { vibrationActuator?: { playEffect?: (type: string, params: object) => Promise<unknown> } }) | null)?.vibrationActuator;
+      if (actuator?.playEffect) {
+        actuator.playEffect('dual-rumble', { duration, weakMagnitude: weak, strongMagnitude: strong }).catch(() => {});
+        return;
+      }
+    }
+  }
 
   private initCtx() {
     if (!this.ctx) {
@@ -20,6 +33,7 @@ class AudioService {
    * Subtle PS5 navigation tick when shifting focus between tiles
    */
   public playNavTick() {
+    this.rumble(20, 0.25);
     if (!this.enabled) return;
     try {
       this.initCtx();
@@ -49,6 +63,7 @@ class AudioService {
    * PlayStation 5 signature confirmation chime
    */
   public playConfirm() {
+    this.rumble(45, 0.5, 0.15);
     if (!this.enabled) return;
     try {
       this.initCtx();
@@ -88,6 +103,7 @@ class AudioService {
    * PlayStation back/cancel soft tone
    */
   public playCancel() {
+    this.rumble(35, 0.35);
     if (!this.enabled) return;
     try {
       this.initCtx();
@@ -117,6 +133,7 @@ class AudioService {
    * Celebratory completion sound when relinking succeeds
    */
   public playSuccess() {
+    this.rumble(60, 0.5, 0.25);
     if (!this.enabled) return;
     try {
       this.initCtx();
@@ -151,6 +168,7 @@ class AudioService {
    * Dramatic low rumble & rising whoosh for Launching a game
    */
   public playLaunch() {
+    this.rumble(120, 0.6, 0.45);
     if (!this.enabled) return;
     try {
       this.initCtx();

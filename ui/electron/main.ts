@@ -111,6 +111,7 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     createWindow();
     detectAvailableGpus();
+    detectHostCapabilities();
 
     // In-App Background auto-updater for GitHub Releases
     try {
@@ -323,12 +324,14 @@ ipcMain.handle('anyps5:get-games', async () => {
         refreshGameSizesInBackground(presentPaths);
         return games;
       }
-      return games;
     }
   } catch (err) {
+    // Keep the unreadable file instead of letting the next save overwrite it.
     console.error('Failed to read games.json:', err);
+    try { fs.renameSync(gamesStorePath, `${gamesStorePath}.corrupt-${Date.now()}`); } catch {}
   }
-  return null;
+  // An empty library, never the demo titles: those are only added when chosen during setup.
+  return [];
 });
 
 ipcMain.handle('anyps5:save-games', async (_, games) => {
@@ -772,6 +775,36 @@ function runCapture(command: string, args: string[], timeout: number): Promise<{
   return new Promise((resolve) => {
     execFile(command, args, { encoding: 'utf8', timeout, windowsHide: true }, (_err, stdout) => resolve({ stdout: stdout || '' }));
   });
+}
+
+// AVX2 and the Vulkan loader are what relinked titles need from the host; checked once per session.
+// avx2 is null when it cannot be determined (e.g. macOS, where Rosetta handles translation).
+let hostCapabilities: Promise<{ avx2: boolean | null; vulkan: boolean }> | null = null;
+function detectHostCapabilities() {
+  if (!hostCapabilities) {
+    hostCapabilities = (async () => {
+      let avx2: boolean | null = null;
+      let vulkan = false;
+      if (process.platform === 'win32') {
+        const sys32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+        vulkan = fs.existsSync(path.join(sys32, 'vulkan-1.dll'));
+        // PF_AVX2_INSTRUCTIONS_AVAILABLE = 40
+        const out = await runCapture('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+          "Add-Type -Namespace K -Name F -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern bool IsProcessorFeaturePresent(uint f);'; [K.F]::IsProcessorFeaturePresent(40)"], 8000);
+        const answer = out.stdout.trim().toLowerCase();
+        avx2 = answer === 'true' ? true : answer === 'false' ? false : null;
+      } else if (process.platform === 'linux') {
+        try {
+          avx2 = /\bavx2\b/.test(await fs.promises.readFile('/proc/cpuinfo', 'utf8'));
+        } catch {}
+        vulkan = ['/usr/lib/x86_64-linux-gnu/libvulkan.so.1', '/usr/lib64/libvulkan.so.1', '/usr/lib/libvulkan.so.1'].some((p) => fs.existsSync(p));
+      } else if (process.platform === 'darwin') {
+        vulkan = true;
+      }
+      return { avx2, vulkan };
+    })().catch(() => ({ avx2: null, vulkan: false }));
+  }
+  return hostCapabilities;
 }
 
 // GPUs do not change while Studio is open: detect once per session, without blocking the main process.
@@ -1511,7 +1544,7 @@ async function fixGameHierarchyInPlace(
     fs.mkdirSync(app0Dir, { recursive: true });
 
     // Move all game assets and folders into app0/ in-place (instant O(1) filesystem metadata rename)
-    const skipEntries = new Set(['app0', 'libs', 'app.exe', 'app.elf', 'eboot.elf', 'relinker.log', 'run_test.log', 'run_game.log', 'run_extended.log', LAYOUT_LOG_NAME]);
+    const skipEntries = new Set(['app0', 'libs', 'app.exe', 'app.elf', 'eboot.elf', 'relinker.log', 'run_test.log', 'run_game.log', 'run_extended.log', 'anyps5.log', 'anyps5.prev.log', LAYOUT_LOG_NAME]);
     const allEntries = fs.readdirSync(resolved);
     for (const entry of allEntries) {
       if (skipEntries.has(entry)) continue;
@@ -2430,6 +2463,11 @@ ipcMain.handle('anyps5:run-relinker', async (_, { game, options }) => {
       data: { timestamp: new Date().toLocaleTimeString(), level, message },
     });
   };
+  if (activeRelinkerProcess) {
+    const busy = 'A relink is already running. Wait for it to finish or cancel it first.';
+    mainWindow?.webContents.send('anyps5:relinker-event', { type: 'error', data: { message: busy } });
+    return false;
+  }
 
   const sendStage = (id: number, status: 'pending' | 'active' | 'completed' | 'error', progress = 0) => {
     mainWindow?.webContents.send('anyps5:relinker-event', {
@@ -2447,6 +2485,9 @@ ipcMain.handle('anyps5:run-relinker', async (_, { game, options }) => {
     const targetRuntimeId = options?.runtimeId || game.runtimeId || (game.titleId ? currentSettings.gameRuntimes?.[game.titleId] : undefined);
     const resolvedRuntime = getRuntimeManager().resolveRuntime(targetRuntimeId);
     sendLog(`[AnyPS5 Runtime] Selected Runtime Engine: "${resolvedRuntime.name}" (${resolvedRuntime.id})`, 'info');
+    if (resolvedRuntime.fallbackFrom) {
+      sendLog(`[AnyPS5 Runtime] Runtime "${resolvedRuntime.fallbackFrom.name}" is missing or broken (relinker or libs not found), so "${resolvedRuntime.name}" is used instead. Reinstall or remove it in Runtime Manager.`, 'warn');
+    }
 
     // Step 1: Fix folder hierarchy in-place in native location (mode: 'relink' isolates legacy stubs)
     const runtimeSig = resolvedRuntime ? `${resolvedRuntime.id}:${resolvedRuntime.commitHash || resolvedRuntime.date || ''}` : '';
@@ -2650,6 +2691,9 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
   const targetRuntimeId = game.runtimeId || (game.titleId ? currentSettings.gameRuntimes?.[game.titleId] : undefined);
   const resolvedRuntime = getRuntimeManager().resolveRuntime(targetRuntimeId);
   sendLog(`[AnyPS5 Runtime] Active Runtime Engine: "${resolvedRuntime.name}" (${resolvedRuntime.id})`, 'info');
+  if (resolvedRuntime.fallbackFrom) {
+    sendLog(`[AnyPS5 Runtime] Runtime "${resolvedRuntime.fallbackFrom.name}" is missing or broken (relinker or libs not found), so "${resolvedRuntime.name}" is used instead. Reinstall or remove it in Runtime Manager.`, 'warn');
+  }
 
   let hierarchyResult: { gameDir: string; inputElf: string; outputExe: string; moduleDirs: string[] } | null = null;
   try {
@@ -2858,12 +2902,30 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
       childEnv.PATH = newPath;
     }
 
+    // anyps5.log is read after exit; move the previous run's log aside so old errors are not replayed.
+    try {
+      const anyps5Log = path.join(game.path, 'anyps5.log');
+      if (fs.existsSync(anyps5Log)) fs.renameSync(anyps5Log, path.join(game.path, 'anyps5.prev.log'));
+    } catch {}
+
     const child = spawn(targetExe, [], {
       cwd: game.path,
       env: childEnv,
       windowsHide: false,
     });
+    child.on('error', (spawnErr) => {
+      console.error('Game process error:', spawnErr);
+      if (activeGameProcess === child) {
+        activeGameProcess = null;
+        try { getDiscordRpcClient().setIdle(); } catch {}
+      }
+    });
+    if (!child.pid) {
+      return { error: `Could not start "${targetExe}". Check that the file exists and that antivirus software is not blocking it.` };
+    }
     activeGameProcess = child;
+    // Output and exit of a process that was stopped or replaced must not reach the launcher of the next session.
+    const isCurrent = () => activeGameProcess === child;
     try {
       getDiscordRpcClient().setGame(game);
     } catch {}
@@ -2880,10 +2942,12 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
     }
 
     let capturedOutput = '';
+    const MAX_CAPTURED = 2 * 1024 * 1024;
 
     child.stdout?.on('data', (d) => {
+      if (!isCurrent()) return;
       const text = d.toString();
-      capturedOutput += text + '\n';
+      capturedOutput = (capturedOutput + text + '\n').slice(-MAX_CAPTURED);
       const lines = text.split(/\r?\n/).filter(Boolean);
       for (const line of lines) {
         sendLog(line, 'info');
@@ -2891,8 +2955,9 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
     });
 
     child.stderr?.on('data', (d) => {
+      if (!isCurrent()) return;
       const text = d.toString();
-      capturedOutput += text + '\n';
+      capturedOutput = (capturedOutput + text + '\n').slice(-MAX_CAPTURED);
       const lines = text.split(/\r?\n/).filter(Boolean);
       for (const line of lines) {
         sendLog(line, 'warn');
@@ -2900,6 +2965,7 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
     });
 
     child.on('close', (code, signal) => {
+      if (!isCurrent()) return;
       const isCrash = (code !== 0 && code !== null) || Boolean(signal);
       const exitCodeHex = code !== null ? '0x' + (code >>> 0).toString(16).toUpperCase() : (signal || 'null');
       sendLog(`[AnyPS5] Game process exited with code ${code} (${exitCodeHex})${signal ? ` killed by signal ${signal}` : ''}`, !isCrash ? 'info' : 'warn');
@@ -2975,17 +3041,16 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
         isCrash,
       });
 
-      if (activeGameProcess === child) {
-        activeGameProcess = null;
-        try {
-          getDiscordRpcClient().setIdle();
-        } catch {}
-      }
+      activeGameProcess = null;
+      try {
+        getDiscordRpcClient().setIdle();
+      } catch {}
     });
 
-    return { pid: child.pid || 1001 };
+    return { pid: child.pid };
   } catch (err: any) {
-    return { error: err.message };
+    try { getDiscordRpcClient().setIdle(); } catch {}
+    return { error: `Could not start the game executable (${err?.message || err}). It may be damaged, built for another platform, or blocked by antivirus software; try relinking the title.` };
   }
 });
 
@@ -3106,7 +3171,12 @@ ipcMain.handle('anyps5:get-telemetry', async () => {
 
   // Check clean-room PRX system libraries
   const libsDir = resolvedRuntime.libsPath;
-  const prxVersion = (resolvedRuntime.isValid && fs.existsSync(libsDir)) ? 'v0.8.4-cleanroom' : 'Not installed';
+  let prxCount = 0;
+  try {
+    prxCount = (await fs.promises.readdir(libsDir)).filter((f) => f.toLowerCase().endsWith('.prx')).length;
+  } catch {}
+  const prxVersion = resolvedRuntime.isValid && prxCount > 0 ? resolvedRuntime.name : 'Not installed';
+  const host = await detectHostCapabilities();
 
   // Determine CPU vendor & translation recommendation
   const isAmd = /AMD|Ryzen|Threadripper|EPYC/i.test(cpuModel);
@@ -3136,10 +3206,13 @@ ipcMain.handle('anyps5:get-telemetry', async () => {
 
   return {
     hostCpu: `${cpuModel} (${cpus.length} Threads)`,
-    hasZen2Extensions: isAmd || isIntel,
-    missingExtensions: [],
+    hasZen2Extensions: host.avx2 === true,
+    missingExtensions: host.avx2 === false ? ['AVX2'] : [],
+    avx2: host.avx2,
+    vulkanAvailable: host.vulkan,
+    prxCount,
     gpuName,
-    vulkanVersion: '1.3.280 (Direct DCB/ACB Queue Support)',
+    vulkanVersion: host.vulkan ? 'Vulkan loader installed' : 'Vulkan loader not found',
     memoryUsageMb,
     totalMemoryMb: totalMemMb,
     relinkerBinaryFound,
@@ -3182,7 +3255,7 @@ ipcMain.handle('anyps5:get-settings', async () => {
     relinkerPath: resolved.relinkerPath,
     prxPath: resolved.libsPath,
     defaultTarget: userSettings.defaultTarget || (process.platform === 'linux' ? 'linux' : (process.platform === 'darwin' ? 'macos' : 'windows')),
-    cpuFix: userSettings.cpuFix || 'intel',
+    cpuFix: userSettings.cpuFix || 'auto',
     soundEnabled: userSettings.soundEnabled !== undefined ? userSettings.soundEnabled : true,
     hapticsEnabled: userSettings.hapticsEnabled !== undefined ? userSettings.hapticsEnabled : true,
     advanced: userSettings.advanced !== undefined ? userSettings.advanced : false,
@@ -3493,7 +3566,7 @@ ipcMain.handle('anyps5:download-pr-build', async (_, { prNumber, artifactUrl, he
 });
 
 const isPrNumber = (n: unknown): n is number => Number.isInteger(n) && (n as number) > 0;
-const isMergedBuildId = (id: unknown): id is string => typeof id === 'string' && /^merged-\d+(?:-\d+)*$/.test(id);
+const isMergedBuildId = (id: unknown): id is string => typeof id === 'string' && /^custom-merged-\d+(?:-\d+)*$/.test(id);
 
 ipcMain.handle('anyps5:set-active-pr-build', async (_, prNumber: number) => {
   if (!isPrNumber(prNumber)) return false;
@@ -3567,73 +3640,31 @@ ipcMain.handle('anyps5:merge-and-build-prs', async (_, prNumbers: number[]) => {
   );
 });
 
+// Combined builds are registered as runtimes (`custom-merged-<pr>-<pr>...`, files under runtimes/custom/),
+// so list, activate and delete them through the runtime manager like any other runtime.
 ipcMain.handle('anyps5:get-merged-builds', async () => {
-  const baseDir = getExperimentalBuildsDir();
-  const settings = loadSettings();
-  const currentRelinker = settings.relinkerPath || getDefaultRelinkerPath();
-
-  const builds: any[] = [];
-  try {
-    if (fs.existsSync(baseDir)) {
-      const entries = fs.readdirSync(baseDir);
-      for (const entry of entries) {
-        if (entry.startsWith('merged-')) {
-          const metaPath = path.join(baseDir, entry, 'merged-info.json');
-          const exePath = path.join(baseDir, entry, getRelinkerBinaryName());
-          if (fs.existsSync(metaPath) && fs.existsSync(exePath)) {
-            try {
-              const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-              builds.push({
-                id: meta.id || entry,
-                name: meta.name || `Combined Build (${entry})`,
-                prNumbers: meta.prNumbers || [],
-                installedAt: meta.installedAt || '',
-                relinkerPath: exePath,
-                isActive: path.normalize(currentRelinker) === path.normalize(exePath),
-              });
-            } catch {}
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.error('Failed to enumerate merged builds:', err);
-  }
-  return builds;
+  const rm = getRuntimeManager();
+  const activeId = rm.getManifest().activeGlobalRuntimeId;
+  return rm.listRuntimes()
+    .filter((r) => isMergedBuildId(r.id) && r.isValid)
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      prNumbers: r.id.replace('custom-merged-', '').split('-').map(Number),
+      installedAt: r.date || '',
+      relinkerPath: r.relinkerPath,
+      isActive: r.id === activeId,
+    }));
 });
 
 ipcMain.handle('anyps5:set-active-merged-build', async (_, buildId: string) => {
   if (!isMergedBuildId(buildId)) return false;
-  const baseDir = getExperimentalBuildsDir();
-  const exePath = path.join(baseDir, buildId, getRelinkerBinaryName());
-  if (fs.existsSync(exePath)) {
-    const current = loadSettings();
-    saveSettings({ ...current, relinkerPath: exePath });
-    return true;
-  }
-  return false;
+  return getRuntimeManager().setActiveGlobalRuntime(buildId);
 });
 
 ipcMain.handle('anyps5:delete-merged-build', async (_, buildId: string) => {
   if (!isMergedBuildId(buildId)) return false;
-  const baseDir = getExperimentalBuildsDir();
-  const dirPath = path.join(baseDir, buildId);
-  const exePath = path.join(dirPath, getRelinkerBinaryName());
-
-  const current = loadSettings();
-  if (current.relinkerPath && path.normalize(current.relinkerPath) === path.normalize(exePath)) {
-    saveSettings({ ...current, relinkerPath: getDefaultRelinkerPath() });
-  }
-
-  if (fs.existsSync(dirPath)) {
-    try {
-      fs.rmSync(dirPath, { recursive: true, force: true });
-      return true;
-    } catch (err) {
-      console.error('Failed to delete merged build:', err);
-    }
-  }
-  return false;
+  return getRuntimeManager().removeRuntime(buildId);
 });
 
 // Runtime Manager IPC Handlers

@@ -1,7 +1,7 @@
 import { safeStorage, app } from 'electron';
 import fs from 'fs';
 import path from 'path';
-import { spawn, spawnSync, execSync } from 'child_process';
+import { extractZip } from './archive';
 import { GitHubAuthStatus, GitHubDeviceCodeResponse, UpstreamCommit, UpstreamComparison, CommitsPageResult } from '../src/types';
 import { RuntimeManager } from './runtimeManager';
 
@@ -595,15 +595,7 @@ export class GitHubAuthService {
 
       // Extract zip archive
       try {
-        if (process.platform === 'win32') {
-          try {
-            execSync(`tar -xf "${tempZipPath}" -C "${tempExtractDir}"`, { stdio: 'ignore' });
-          } catch {
-            execSync(`powershell -NoProfile -Command "Expand-Archive -LiteralPath '${tempZipPath}' -DestinationPath '${tempExtractDir}' -Force"`, { stdio: 'ignore' });
-          }
-        } else {
-          execSync(`unzip -q "${tempZipPath}" -d "${tempExtractDir}"`, { stdio: 'ignore' });
-        }
+        await extractZip(tempZipPath, tempExtractDir);
       } finally {
         if (fs.existsSync(tempZipPath)) {
           try { fs.unlinkSync(tempZipPath); } catch {}

@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
-import { spawn, spawnSync, ChildProcess } from 'child_process';
+import { spawn, spawnSync, execFile, ChildProcess } from 'child_process';
 import os from 'os';
 import fs from 'fs';
 import { autoUpdater } from 'electron-updater';
@@ -110,6 +110,7 @@ if (!gotTheLock) {
 
   app.whenReady().then(() => {
     createWindow();
+    detectAvailableGpus();
 
     // In-App Background auto-updater for GitHub Releases
     try {
@@ -196,10 +197,11 @@ app.on('window-all-closed', () => {
 });
 
 // Recursive helper to calculate accurate size of game directory/file on disk
-function getFolderSize(targetPath: string): number {
+// Async so walking a 100 GB dump never blocks the main process (and with it the whole window).
+async function getFolderSize(targetPath: string): Promise<number> {
   try {
-    if (!targetPath || !fs.existsSync(targetPath)) return 0;
-    const stat = fs.statSync(targetPath);
+    if (!targetPath) return 0;
+    const stat = await fs.promises.stat(targetPath);
     if (!stat.isDirectory()) {
       const base = path.basename(targetPath).toLowerCase();
       if (base === 'eboot.bin' || base === 'eboot.elf' || base === 'app.exe' || base === 'app.elf') {
@@ -207,21 +209,48 @@ function getFolderSize(targetPath: string): number {
       }
       return stat.size;
     }
-    let total = 0;
-    const entries = fs.readdirSync(targetPath, { withFileTypes: true });
-    for (const entry of entries) {
+    const entries = await fs.promises.readdir(targetPath, { withFileTypes: true });
+    const sizes = await Promise.all(entries.map(async (entry) => {
       const full = path.join(targetPath, entry.name);
       try {
-        if (entry.isDirectory() && !entry.isSymbolicLink()) {
-          total += getFolderSize(full);
-        } else if (entry.isFile()) {
-          total += fs.statSync(full).size;
-        }
+        if (entry.isDirectory() && !entry.isSymbolicLink()) return await getFolderSize(full);
+        if (entry.isFile()) return (await fs.promises.stat(full)).size;
       } catch {}
-    }
-    return total;
+      return 0;
+    }));
+    return sizes.reduce((a, b) => a + b, 0);
   } catch {
     return 0;
+  }
+}
+
+// Sizes are refreshed after the library is returned, then merged into whatever is on disk at that moment
+// so a save from the renderer in the meantime is never overwritten with a stale list.
+let sizeRefreshRunning = false;
+async function refreshGameSizesInBackground(paths: string[]) {
+  if (sizeRefreshRunning || paths.length === 0) return;
+  sizeRefreshRunning = true;
+  try {
+    const sizes = new Map<string, number>();
+    for (const p of paths) {
+      const size = await getFolderSize(p);
+      if (size > 0) sizes.set(p, size);
+    }
+    const current = JSON.parse(await fs.promises.readFile(gamesStorePath, 'utf8'));
+    if (!Array.isArray(current)) return;
+    let changed = false;
+    for (const g of current) {
+      const size = g?.path ? sizes.get(g.path) : undefined;
+      if (size !== undefined && g.sizeBytes !== size) {
+        g.sizeBytes = size;
+        changed = true;
+      }
+    }
+    if (changed) await fs.promises.writeFile(gamesStorePath, JSON.stringify(current, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Failed to refresh game sizes:', err);
+  } finally {
+    sizeRefreshRunning = false;
   }
 }
 
@@ -235,14 +264,10 @@ ipcMain.handle('anyps5:get-games', async () => {
       const games = JSON.parse(data);
       if (Array.isArray(games)) {
         let changed = false;
+        const presentPaths: string[] = [];
         for (const g of games) {
           if (g && g.path && fs.existsSync(g.path)) {
-            const actualSize = getFolderSize(g.path);
-            if (actualSize > 0 && g.sizeBytes !== actualSize) {
-              g.sizeBytes = actualSize;
-              changed = true;
-            }
-
+            presentPaths.push(g.path);
             const isLinux = process.platform === 'linux';
             const hasAppElf = fs.existsSync(path.join(g.path, 'app.elf'));
             const hasAppExe = fs.existsSync(path.join(g.path, 'app.exe'));
@@ -286,6 +311,7 @@ ipcMain.handle('anyps5:get-games', async () => {
             console.error('Failed to update games.json with accurate sizes:', writeErr);
           }
         }
+        refreshGameSizesInBackground(presentPaths);
         return games;
       }
       return games;
@@ -298,15 +324,11 @@ ipcMain.handle('anyps5:get-games', async () => {
 
 ipcMain.handle('anyps5:save-games', async (_, games) => {
   try {
-    if (Array.isArray(games)) {
-      for (const g of games) {
-        if (g && g.path && (!g.sizeBytes || g.sizeBytes === 15 * 1024 * 1024 * 1024) && fs.existsSync(g.path)) {
-          const actual = getFolderSize(g.path);
-          if (actual > 0) g.sizeBytes = actual;
-        }
-      }
-    }
     fs.writeFileSync(gamesStorePath, JSON.stringify(games, null, 2), 'utf8');
+    if (Array.isArray(games)) {
+      const unsized = games.filter((g) => g && g.path && (!g.sizeBytes || g.sizeBytes === 15 * 1024 * 1024 * 1024));
+      refreshGameSizesInBackground(unsized.map((g) => g.path));
+    }
   } catch (err) {
     console.error('Failed to write games.json:', err);
   }
@@ -328,7 +350,7 @@ ipcMain.handle('anyps5:inspect-folder', async (_, folderPath: string) => {
   return inspectGameFolder(folderPath);
 });
 
-function inspectGameFolder(folderPath: string) {
+async function inspectGameFolder(folderPath: string) {
   try {
     if (!folderPath || !fs.existsSync(folderPath)) return null;
     let titleName = '';
@@ -338,20 +360,20 @@ function inspectGameFolder(folderPath: string) {
     let backdropDataUrl = '';
     let hasEboot = false;
 
-    function walk(dir: string, depth: number) {
+    async function walk(dir: string, depth: number) {
       if (depth > 3) return;
       try {
-        const entries = fs.readdirSync(dir);
-        for (const entry of entries) {
+        const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        for (const dirent of entries) {
+          const entry = dirent.name;
           const full = path.join(dir, entry);
-          const stat = fs.statSync(full);
-          if (stat.isDirectory()) {
-            walk(full, depth + 1);
+          if (dirent.isDirectory()) {
+            await walk(full, depth + 1);
           } else {
             const lower = entry.toLowerCase();
             if (lower === 'param.json' && !titleId) {
               try {
-                const parsed = JSON.parse(fs.readFileSync(full, 'utf8'));
+                const parsed = JSON.parse(await fs.promises.readFile(full, 'utf8'));
                 titleId = parsed.titleId || '';
                 const loc = parsed.localizedParameters || {};
                 const defLang = loc.defaultLanguage || 'en-US';
@@ -372,13 +394,13 @@ function inspectGameFolder(folderPath: string) {
             }
             if (lower === 'icon0.png' && !iconDataUrl) {
               try {
-                const buf = fs.readFileSync(full);
+                const buf = await fs.promises.readFile(full);
                 iconDataUrl = `data:image/png;base64,${buf.toString('base64')}`;
               } catch {}
             }
             if ((lower === 'pic0.png' || lower === 'pic1.png') && !backdropDataUrl) {
               try {
-                const buf = fs.readFileSync(full);
+                const buf = await fs.promises.readFile(full);
                 backdropDataUrl = `data:image/png;base64,${buf.toString('base64')}`;
               } catch {}
             }
@@ -390,9 +412,9 @@ function inspectGameFolder(folderPath: string) {
       } catch {}
     }
 
-    walk(folderPath, 0);
+    await walk(folderPath, 0);
 
-    const sizeBytes = getFolderSize(folderPath);
+    const sizeBytes = await getFolderSize(folderPath);
 
     return {
       title: titleName,
@@ -425,7 +447,7 @@ function nidAuditError(error: string) {
   };
 }
 
-function auditGameNids(game: any, forceRefresh = false) {
+async function auditGameNids(game: any, forceRefresh = false) {
   const titleId = (typeof game === 'object' && game?.titleId) ? game.titleId : 'UNKNOWN';
   const folderPath = (typeof game === 'string') ? game : (game?.path || '');
 
@@ -520,8 +542,12 @@ function auditGameNids(game: any, forceRefresh = false) {
     if (libsPath) {
       args.push('--libs', libsPath);
     }
-    const out = spawnSync(py, args, { encoding: 'utf8', timeout: 30000 });
-    if (out.error) continue;
+    const out = await new Promise<{ missing: boolean; stdout: string; stderr: string; status: string }>((resolve) => {
+      execFile(py, args, { encoding: 'utf8', timeout: 30000, windowsHide: true, maxBuffer: 64 * 1024 * 1024 }, (err: any, stdout, stderr) => {
+        resolve({ missing: err?.code === 'ENOENT', stdout: stdout || '', stderr: stderr || '', status: err ? String(err.code ?? err.signal ?? 'error') : '0' });
+      });
+    });
+    if (out.missing) continue;
     const stdout = (out.stdout || '').trim();
     if (stdout.startsWith('{')) {
       try {
@@ -583,7 +609,7 @@ function isGameRootFolder(folderPath: string): boolean {
   return false;
 }
 
-function scanDirectoryForGames(rootDir: string, maxDepth = 5): DiscoveredGameCandidate[] {
+async function scanDirectoryForGames(rootDir: string, maxDepth = 5): Promise<DiscoveredGameCandidate[]> {
   const discovered: DiscoveredGameCandidate[] = [];
   const visitedRoots = new Set<string>();
 
@@ -594,7 +620,7 @@ function scanDirectoryForGames(rootDir: string, maxDepth = 5): DiscoveredGameCan
   const normalizedRoot = path.resolve(rootDir);
 
   if (isGameRootFolder(normalizedRoot)) {
-    const inspected = inspectGameFolder(normalizedRoot);
+    const inspected = await inspectGameFolder(normalizedRoot);
     if (inspected) {
       discovered.push({
         path: normalizedRoot,
@@ -624,12 +650,12 @@ function scanDirectoryForGames(rootDir: string, maxDepth = 5): DiscoveredGameCan
     'program files (x86)',
   ]);
 
-  function traverse(currentDir: string, currentDepth: number) {
+  async function traverse(currentDir: string, currentDepth: number) {
     if (currentDepth > maxDepth) return;
 
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
     } catch {
       return;
     }
@@ -657,7 +683,7 @@ function scanDirectoryForGames(rootDir: string, maxDepth = 5): DiscoveredGameCan
       if (isGameRootFolder(fullPath)) {
         visitedRoots.add(normalizedPath);
         try {
-          const inspected = inspectGameFolder(fullPath);
+          const inspected = await inspectGameFolder(fullPath);
           if (inspected) {
             discovered.push({
               path: fullPath,
@@ -676,11 +702,11 @@ function scanDirectoryForGames(rootDir: string, maxDepth = 5): DiscoveredGameCan
         continue;
       }
 
-      traverse(fullPath, currentDepth + 1);
+      await traverse(fullPath, currentDepth + 1);
     }
   }
 
-  traverse(normalizedRoot, 1);
+  await traverse(normalizedRoot, 1);
   return discovered;
 }
 
@@ -722,17 +748,29 @@ interface DetectedGpu {
   driverVersion?: string;
 }
 
-function detectAvailableGpus(): DetectedGpu[] {
+function runCapture(command: string, args: string[], timeout: number): Promise<{ stdout: string }> {
+  return new Promise((resolve) => {
+    execFile(command, args, { encoding: 'utf8', timeout, windowsHide: true }, (_err, stdout) => resolve({ stdout: stdout || '' }));
+  });
+}
+
+// GPUs do not change while Studio is open: detect once per session, without blocking the main process.
+let gpuDetection: Promise<DetectedGpu[]> | null = null;
+function detectAvailableGpus(): Promise<DetectedGpu[]> {
+  if (!gpuDetection) {
+    gpuDetection = detectAvailableGpusUncached().catch(() => []);
+  }
+  return gpuDetection;
+}
+
+async function detectAvailableGpusUncached(): Promise<DetectedGpu[]> {
   const gpus: DetectedGpu[] = [];
   const platform = os.platform();
 
   if (platform === 'win32') {
     try {
       const cmd = `Get-CimInstance Win32_VideoController | Select-Object -Property Name, AdapterRAM, Status, VideoProcessor, DriverVersion, PNPDeviceID | ConvertTo-Json`;
-      const out = spawnSync('powershell', ['-NoProfile', '-Command', cmd], {
-        encoding: 'utf8',
-        timeout: 5000,
-      });
+      const out = await runCapture('powershell', ['-NoProfile', '-Command', cmd], 5000);
       if (out.stdout && out.stdout.trim()) {
         const parsed = JSON.parse(out.stdout.trim());
         const rawList = Array.isArray(parsed) ? parsed : [parsed];
@@ -807,7 +845,7 @@ function detectAvailableGpus(): DetectedGpu[] {
     });
   } else if (platform === 'linux') {
     try {
-      const vkOut = spawnSync('vulkaninfo', ['--summary'], { encoding: 'utf8', timeout: 3000 });
+      const vkOut = await runCapture('vulkaninfo', ['--summary'], 3000);
       if (vkOut.stdout) {
         const lines = vkOut.stdout.split('\n');
         let currentDevice = '';
@@ -847,7 +885,7 @@ function detectAvailableGpus(): DetectedGpu[] {
 
     if (gpus.length === 0) {
       try {
-        const out = spawnSync('lspci', [], { encoding: 'utf8', timeout: 3000 });
+        const out = await runCapture('lspci', [], 3000);
         if (out.stdout) {
           const vgaLines = out.stdout.split('\n').filter(l => l.includes('VGA compatible controller') || l.includes('3D controller'));
           for (const line of vgaLines) {
@@ -1371,7 +1409,30 @@ function sanitizeModuleDirectory(
   }
 }
 
-function fixGameHierarchyInPlace(
+// Executables are hundreds of MB and these checks run on every launch: stream them instead of
+// reading whole files into memory, and remember the answer until the file changes.
+const fileScanCache = new Map<string, boolean>();
+async function fileContainsAny(filePath: string, needles: Buffer[]): Promise<boolean> {
+  const stat = await fs.promises.stat(filePath);
+  const key = [filePath, stat.size, stat.mtimeMs, ...needles.map((n) => n.toString('hex'))].join('|');
+  const cached = fileScanCache.get(key);
+  if (cached !== undefined) return cached;
+  const overlap = Math.max(...needles.map((n) => n.length)) - 1;
+  let tail = Buffer.alloc(0);
+  let found = false;
+  for await (const chunk of fs.createReadStream(filePath, { highWaterMark: 1 << 20 })) {
+    const window = Buffer.concat([tail, chunk as Buffer]);
+    if (needles.some((n) => window.includes(n))) {
+      found = true;
+      break;
+    }
+    tail = window.subarray(Math.max(0, window.length - overlap));
+  }
+  fileScanCache.set(key, found);
+  return found;
+}
+
+async function fixGameHierarchyInPlace(
   gameDir: string,
   sendLog: (msg: string, level?: string) => void,
   mode: 'launch' | 'relink' = 'launch',
@@ -1916,8 +1977,7 @@ function fixGameHierarchyInPlace(
     for (const exePath of candidateExes) {
       if (fs.existsSync(exePath)) {
         try {
-          const exeBuffer = fs.readFileSync(exePath);
-          if (exeBuffer.includes(guestLibcUtf8) || exeBuffer.includes(guestLibcUtf16)) {
+          if (await fileContainsAny(exePath, [guestLibcUtf8, guestLibcUtf16])) {
             needsGuestLibc = true;
             break;
           }
@@ -1935,8 +1995,7 @@ function fixGameHierarchyInPlace(
           if (ent.endsWith('.guest.prx') && ent !== 'libc.prx.guest.prx') {
             const fullModPath = path.join(checkDir, ent);
             try {
-              const modBuf = fs.readFileSync(fullModPath);
-              if (modBuf.includes(guestLibcUtf8) || modBuf.includes(guestLibcUtf16)) {
+              if (await fileContainsAny(fullModPath, [guestLibcUtf8, guestLibcUtf16])) {
                 needsGuestLibc = true;
                 break;
               }
@@ -2261,16 +2320,13 @@ function fixGameHierarchyInPlace(
   if (mode === 'launch') {
     try {
       if (fs.existsSync(outputExe)) {
-        const exeBuffer = fs.readFileSync(outputExe);
-        const guestLibcUtf8 = Buffer.from('libc.prx.guest.prx', 'utf8');
-        const guestLibcUtf16 = Buffer.from('libc.prx.guest.prx', 'utf16le');
-        if (exeBuffer.includes(guestLibcUtf8) || exeBuffer.includes(guestLibcUtf16)) {
+        if (await fileContainsAny(outputExe, [guestLibcUtf8, guestLibcUtf16])) {
           sendLog(`[AnyPS5 Diagnostics] Guest libc integration: "${path.basename(outputExe)}" links against guest libc.prx.guest.prx for SDK 9.00+ Dinkumware threading symbols.`, 'info');
         }
 
         const fakelibUtf8 = Buffer.from('fakelib', 'utf8');
         const fakelibUtf16 = Buffer.from('fakelib', 'utf16le');
-        if (exeBuffer.includes(fakelibUtf8) || exeBuffer.includes(fakelibUtf16)) {
+        if (await fileContainsAny(outputExe, [fakelibUtf8, fakelibUtf16])) {
           sendLog(`[AnyPS5 Diagnostics] Stale executable detected: "${path.basename(outputExe)}" contains embedded imports to legacy "fakelib" stubs.`, 'warn');
           sendLog(`[AnyPS5 Diagnostics] Re-relinking this title in Relinker Studio is recommended to use AnyPS5's native translation libraries.`, 'info');
 
@@ -2374,7 +2430,7 @@ ipcMain.handle('anyps5:run-relinker', async (_, { game, options }) => {
 
     // Step 1: Fix folder hierarchy in-place in native location (mode: 'relink' isolates legacy stubs)
     const runtimeSig = resolvedRuntime ? `${resolvedRuntime.id}:${resolvedRuntime.commitHash || resolvedRuntime.date || ''}` : '';
-    const { gameDir, inputElf, outputExe, moduleDirs } = fixGameHierarchyInPlace(game.path, sendLog, 'relink', resolvedRuntime.libsPath, runtimeSig);
+    const { gameDir, inputElf, outputExe, moduleDirs } = await fixGameHierarchyInPlace(game.path, sendLog, 'relink', resolvedRuntime.libsPath, runtimeSig);
     game.path = gameDir;
     sendStage(1, 'completed', 100);
 
@@ -2580,7 +2636,7 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
     sendLog(`[AnyPS5] Launching native ported executable: ${game.path}/${game.executableName || getDefaultOutputExecutableName()}`);
     sendLog(`[AnyPS5] Checking runtime layout: libs/ system PRX and app0/ guest filesystem...`);
     const runtimeSig = resolvedRuntime ? `${resolvedRuntime.id}:${resolvedRuntime.commitHash || resolvedRuntime.date || ''}` : '';
-    hierarchyResult = fixGameHierarchyInPlace(game.path, sendLog, 'launch', resolvedRuntime.libsPath, runtimeSig);
+    hierarchyResult = await fixGameHierarchyInPlace(game.path, sendLog, 'launch', resolvedRuntime.libsPath, runtimeSig);
   } catch (err: any) {
     console.error('Launch hierarchy check error:', err);
     sendLog(`[AnyPS5 Warning] Hierarchy check: ${err?.message || err}`, 'warn');
@@ -2660,7 +2716,7 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
         gpuToUse = userSettings.preferredGpu.trim();
       }
     } else {
-      const gpus = detectAvailableGpus();
+      const gpus = await detectAvailableGpus();
       const bestDiscrete = gpus.find((g) => g.isDiscrete && !g.isVirtual);
       if (bestDiscrete) {
         gpuToUse = bestDiscrete.name;
@@ -2671,7 +2727,7 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
       childEnv.ANYPS5_GPU = gpuToUse;
     }
 
-    const gpus = detectAvailableGpus();
+    const gpus = await detectAvailableGpus();
     const isVmEnvironment = gpus.some((g) => g.isVirtual) ||
       Boolean(process.env.VAGRANT) ||
       Boolean(process.env.container) ||
@@ -3013,7 +3069,7 @@ ipcMain.handle('anyps5:get-telemetry', async () => {
   // Detect GPU name safely (prioritizing user settings or discrete physical GPU over virtual display adapters)
   let gpuName = 'DirectX 12 / Vulkan Compatible GPU';
   try {
-    const availableGpus = detectAvailableGpus();
+    const availableGpus = await detectAvailableGpus();
     const userSettings = loadSettings();
     if (userSettings.preferredGpu && userSettings.preferredGpu !== 'auto' && userSettings.preferredGpu.trim() !== '') {
       gpuName = userSettings.preferredGpu;

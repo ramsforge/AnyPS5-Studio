@@ -132,7 +132,7 @@ export const NidInspector: React.FC<NidInspectorProps> = ({
     resolvedCount: 0,
     stubCount: 0,
     missingCount: 0,
-    coveragePercentage: 100.0,
+    coveragePercentage: 0,
   };
 
   const coverageColor = summary.coveragePercentage >= 90
@@ -356,7 +356,7 @@ export const NidInspector: React.FC<NidInspectorProps> = ({
       ) : auditResult?.error ? (
         <div className="bg-black/40 rounded-2xl border border-amber-500/20 p-8 flex flex-col items-center justify-center text-center max-w-xl mx-auto my-auto space-y-3">
           <AlertCircle className="w-10 h-10 text-amber-400 flex-shrink-0" />
-          <h3 className="text-base font-semibold text-white">Decryption or Relinking Required</h3>
+          <h3 className="text-base font-semibold text-white">NID Audit Unavailable</h3>
           <p className="text-xs text-white/60 leading-relaxed">
             {auditResult.error}
           </p>

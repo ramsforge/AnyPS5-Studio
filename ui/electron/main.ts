@@ -43,7 +43,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
     },
     show: true,
   });
@@ -59,21 +59,20 @@ function createWindow() {
   });
 
   // Open any external web links in user's default system browser instead of in-app
+  // Never open in-app windows (they would inherit the preload bridge); web links go to the system browser.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
       shell.openExternal(url);
-      return { action: 'deny' };
     }
-    return { action: 'allow' };
+    return { action: 'deny' };
   });
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
+    const isDev = (process.env.VITE_DEV_SERVER_URL && url.startsWith(process.env.VITE_DEV_SERVER_URL)) || url.startsWith('http://localhost:5173');
+    if (isDev) return;
+    event.preventDefault();
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      const isDev = (process.env.VITE_DEV_SERVER_URL && url.startsWith(process.env.VITE_DEV_SERVER_URL)) || url.startsWith('http://localhost:5173');
-      if (!isDev) {
-        event.preventDefault();
-        shell.openExternal(url);
-      }
+      shell.openExternal(url);
     }
   });
 
@@ -418,54 +417,11 @@ ipcMain.handle('anyps5:audit-game-nids', async (_, game: any, forceRefresh = fal
   return auditGameNids(game, forceRefresh);
 });
 
-function generateSampleNidAudit(game: any) {
-  const title = (game && game.title) ? game.title : 'PlayStation 5 Title';
-  const titleId = (game && game.titleId) ? game.titleId : 'PPSA00000';
-
-  const sampleImports = [
-    { nid: '0x1A2B3C4D5E6F7001', module: 'libkernel.prx', symbol: 'sceKernelCreateEqueue', status: 'implemented', implementationNotes: 'Native IOCP/kqueue wait queue translation' },
-    { nid: '0x1A2B3C4D5E6F7002', module: 'libkernel.prx', symbol: 'sceKernelWaitEqueue', status: 'implemented', implementationNotes: 'Event queue poll loop' },
-    { nid: '0x1A2B3C4D5E6F7003', module: 'libkernel.prx', symbol: 'sceKernelDeleteEqueue', status: 'implemented', implementationNotes: 'Release wait queue handle' },
-    { nid: '0x2F3A4B5C6D7E8001', module: 'libkernel.prx', symbol: 'scePthreadCreate', status: 'implemented', implementationNotes: 'FreeBSD pthread cancellation semantics' },
-    { nid: '0x2F3A4B5C6D7E8002', module: 'libkernel.prx', symbol: 'scePthreadJoin', status: 'implemented', implementationNotes: 'Maps directly to host Win32 thread' },
-    { nid: '0x2A3B4C5D6E7F8003', module: 'libkernel.prx', symbol: 'sceKernelAllocateDirectMemory', status: 'implemented', implementationNotes: 'Host virtual memory allocation' },
-    { nid: '0x2A3B4C5D6E7F8004', module: 'libkernel.prx', symbol: 'sceKernelMapDirectMemory', status: 'implemented', implementationNotes: 'Dual-mapped GPU/CPU page table' },
-    { nid: '0x04AjkP0jO9U', module: 'libkernel.prx', symbol: '_umtx_op', status: 'stub', implementationNotes: 'Stubbed FreeBSD mutex op' },
-    { nid: '0x3A4B5C6D7E8F9001', module: 'libSceAgcDriver.prx', symbol: 'sceAgcDriverSubmitDcb', status: 'implemented', implementationNotes: 'Direct Vulkan queue submission' },
-    { nid: '0x3A4B5C6D7E8F9002', module: 'libSceAgcDriver.prx', symbol: 'sceAgcDriverRegisterShader', status: 'implemented', implementationNotes: 'RDNA ISA to SPIR-V JIT compiler' },
-    { nid: '0x3A4B5C6D7E8F9003', module: 'libSceAgcDriver.prx', symbol: 'sceAgcDriverCreateResource', status: 'implemented', implementationNotes: 'Vulkan buffer/image creation' },
-    { nid: '0x4A5B6C7D8E9F0001', module: 'libScePad.prx', symbol: 'scePadOpen', status: 'implemented', implementationNotes: 'DirectInput / XInput DualSense HID layer' },
-    { nid: '0x4A5B6C7D8E9F0002', module: 'libScePad.prx', symbol: 'scePadClose', status: 'implemented', implementationNotes: 'Release gamepad handle' },
-    { nid: '0x4A5B6C7D8E9F0003', module: 'libScePad.prx', symbol: 'scePadReadState', status: 'implemented', implementationNotes: 'High precision state polling' },
-    { nid: '0x5A6B7C8D9E0F1001', module: 'libSceAudioOut.prx', symbol: 'sceAudioOutOpen', status: 'implemented', implementationNotes: 'WASAPI 48kHz float multichannel stream' },
-    { nid: '0x5A6B7C8D9E0F1002', module: 'libSceAudioOut.prx', symbol: 'sceAudioOutOutput', status: 'implemented', implementationNotes: 'Ring buffer PCM audio dispatch' },
-    { nid: '0x6A7B8C9D0E1F2001', module: 'libc.prx', symbol: 'malloc', status: 'implemented', implementationNotes: 'Host C runtime heap allocation' },
-    { nid: '0x6A7B8C9D0E1F2002', module: 'libc.prx', symbol: 'free', status: 'implemented', implementationNotes: 'Host C runtime heap free' },
-    { nid: '0x6A7B8C9D0E1F2003', module: 'libc.prx', symbol: 'memcpy', status: 'implemented', implementationNotes: 'Optimized AVX2 memory copy' },
-    { nid: '0xUTrpOVLcoOA', module: 'libc.prx', symbol: 'vsscanf', status: 'stub', implementationNotes: 'Fallback string scanner stub' },
-    { nid: '0x7A8B9C0D1E2F3001', module: 'libSceSaveData.prx', symbol: 'sceSaveDataMount', status: 'implemented', implementationNotes: 'Redirected to local host folder app0/savedata' },
-    { nid: '0xAA88442200000001', module: 'libSceSaveData.prx', symbol: 'sceSaveDataMountCloud', status: 'stub', implementationNotes: 'Redirected to local host folder' },
-    { nid: '0x8A9B0C1D2E3F4001', module: 'libSceUserService.prx', symbol: 'sceUserServiceInitialize', status: 'implemented', implementationNotes: 'Local user account context' },
-    { nid: '0x8A9B0C1D2E3F4002', module: 'libSceUserService.prx', symbol: 'sceUserServiceGetInitialUser', status: 'implemented', implementationNotes: 'Default primary player ID 1' },
-    { nid: '0x99A3F12D00000001', module: 'libSceHaptic.prx', symbol: 'sceHapticTriggerFeedback', status: 'stub', implementationNotes: 'Stubbed return SCE_OK (no motor passthrough)' },
-    { nid: '0xE8912C0400000001', module: 'libSceNpMatching2.prx', symbol: 'sceNpMatching2CreateRoom', status: 'missing', implementationNotes: 'Network matchmaking unsupported' },
-    { nid: '0xE8912C0400000002', module: 'libSceNpMatching2.prx', symbol: 'sceNpMatching2JoinRoom', status: 'missing', implementationNotes: 'Network session join unsupported' },
-  ];
-
-  const total = sampleImports.length;
-  const resolved = sampleImports.filter((i) => i.status === 'implemented').length;
-  const stubs = sampleImports.filter((i) => i.status === 'stub').length;
-  const missing = sampleImports.filter((i) => i.status === 'missing').length;
-
+function nidAuditError(error: string) {
   return {
-    summary: {
-      totalImports: total,
-      resolvedCount: resolved,
-      stubCount: stubs,
-      missingCount: missing,
-      coveragePercentage: Math.round((resolved / total) * 100),
-    },
-    imports: sampleImports,
+    error,
+    summary: { totalImports: 0, resolvedCount: 0, stubCount: 0, missingCount: 0, coveragePercentage: 0 },
+    imports: [],
   };
 }
 
@@ -473,7 +429,10 @@ function auditGameNids(game: any, forceRefresh = false) {
   const titleId = (typeof game === 'object' && game?.titleId) ? game.titleId : 'UNKNOWN';
   const folderPath = (typeof game === 'string') ? game : (game?.path || '');
 
-  const cacheDir = path.join(app.getPath('userData'), 'nid-cache');
+  try {
+    fs.rmSync(path.join(app.getPath('userData'), 'nid-cache'), { recursive: true, force: true });
+  } catch {}
+  const cacheDir = path.join(app.getPath('userData'), 'nid-cache-v2');
   if (!fs.existsSync(cacheDir)) {
     try {
       fs.mkdirSync(cacheDir, { recursive: true });
@@ -537,58 +496,52 @@ function auditGameNids(game: any, forceRefresh = false) {
     if (fs.existsSync(fallbackLibs)) libsPath = fallbackLibs;
   }
 
-  if (candidateBinary) {
-    const scriptCandidates = [
-      path.resolve(app.getAppPath(), '..', 'tools', 'audit_game_nids.py'),
-      path.resolve(process.cwd(), 'tools', 'audit_game_nids.py'),
-      path.join(app.getAppPath(), 'tools', 'audit_game_nids.py'),
-    ];
-    const scriptPath = scriptCandidates.find((p) => fs.existsSync(p));
+  if (!folderPath || !fs.existsSync(folderPath)) {
+    return nidAuditError(`Game folder not found: "${folderPath}". Re-import the title or check that its drive is connected.`);
+  }
+  if (!candidateBinary) {
+    return nidAuditError('No readable PlayStation 5 executable (eboot.bin, eboot.elf, or app.exe) found in directory. Ensure files are decrypted or relinked.');
+  }
 
-    if (scriptPath) {
-      const pythonCommands = process.platform === 'win32' ? ['python', 'py', 'python3'] : ['python3', 'python'];
-      for (const py of pythonCommands) {
-        try {
-          const args = [scriptPath, '--binary', candidateBinary];
-          if (libsPath) {
-            args.push('--libs', libsPath);
-          }
-          const out = spawnSync(py, args, { encoding: 'utf8', timeout: 30000 });
-          if (out.stdout && out.stdout.trim().startsWith('{')) {
-            const parsed = JSON.parse(out.stdout.trim());
-            if (!parsed.error && parsed.summary) {
-              try {
-                fs.writeFileSync(cacheFile, JSON.stringify(parsed, null, 2), 'utf8');
-              } catch {}
-              return parsed;
-            } else if (parsed.error) {
-              return parsed;
-            }
-          }
-        } catch {}
-      }
+  const scriptCandidates = [
+    path.resolve(app.getAppPath(), '..', 'tools', 'audit_game_nids.py'),
+    path.resolve(process.cwd(), 'tools', 'audit_game_nids.py'),
+    path.join(app.getAppPath(), 'tools', 'audit_game_nids.py'),
+  ];
+  const scriptPath = scriptCandidates.find((p) => fs.existsSync(p));
+  if (!scriptPath) {
+    return nidAuditError('The NID audit script (tools/audit_game_nids.py) is missing from this installation. Reinstall AnyPS5 Studio.');
+  }
+
+  const pythonCommands = process.platform === 'win32' ? ['python', 'py', 'python3'] : ['python3', 'python'];
+  let lastFailure = '';
+  for (const py of pythonCommands) {
+    const args = [scriptPath, '--binary', candidateBinary];
+    if (libsPath) {
+      args.push('--libs', libsPath);
     }
+    const out = spawnSync(py, args, { encoding: 'utf8', timeout: 30000 });
+    if (out.error) continue;
+    const stdout = (out.stdout || '').trim();
+    if (stdout.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(stdout);
+        if (parsed.error) return nidAuditError(String(parsed.error));
+        if (parsed.summary) {
+          try {
+            fs.writeFileSync(cacheFile, JSON.stringify(parsed, null, 2), 'utf8');
+          } catch {}
+          return parsed;
+        }
+      } catch {}
+    }
+    lastFailure = (out.stderr || '').trim().split(/\r?\n/).slice(-3).join(' ') || `exit code ${out.status}`;
   }
 
-  if (folderPath && fs.existsSync(folderPath) && !candidateBinary) {
-    return {
-      error: 'No readable PlayStation 5 executable (eboot.bin, eboot.elf, or app.exe) found in directory. Ensure files are decrypted or relinked.',
-      summary: {
-        totalImports: 0,
-        resolvedCount: 0,
-        stubCount: 0,
-        missingCount: 0,
-        coveragePercentage: 100.0,
-      },
-      imports: [],
-    };
+  if (!lastFailure) {
+    return nidAuditError('The NID audit needs Python 3, which was not found. Install it from python.org (tick "Add python.exe to PATH"), then click Refresh.');
   }
-
-  const sampleAudit = generateSampleNidAudit(typeof game === 'object' ? game : { titleId });
-  try {
-    fs.writeFileSync(cacheFile, JSON.stringify(sampleAudit, null, 2), 'utf8');
-  } catch {}
-  return sampleAudit;
+  return nidAuditError(`The NID audit script failed: ${lastFailure}`);
 }
 
 interface DiscoveredGameCandidate {
@@ -1206,7 +1159,106 @@ function isAuthenticGuestModule(filePath: string): boolean {
   }
 }
 
+// Every file or folder Studio moves inside a game directory is recorded here (relative to the game root),
+// so "Restore Original Folder Layout" can put the dump back the way the user provided it.
+const LAYOUT_LOG_NAME = '.anyps5studio-layout.json';
+const BACKUP_SUFFIX = /\.(?:bak|esbak|old|orig|self_orig)(?:_[\w-]*)?$/i;
+
+interface LayoutLog {
+  move(src: string, dst: string): void;
+}
+
+function isInsideDir(root: string, target: string): boolean {
+  const rel = path.relative(path.resolve(root), path.resolve(target));
+  return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+function moveEntry(src: string, dst: string) {
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  try {
+    fs.renameSync(src, dst);
+  } catch {
+    fs.cpSync(src, dst, { recursive: true });
+    fs.rmSync(src, { recursive: true, force: true });
+  }
+}
+
+function openLayoutLog(root: string): LayoutLog {
+  const logPath = path.join(root, LAYOUT_LOG_NAME);
+  let entries: { from: string; to: string }[] = [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(logPath, 'utf8'));
+    if (Array.isArray(parsed)) entries = parsed;
+  } catch {}
+  return {
+    move(src, dst) {
+      moveEntry(src, dst);
+      entries.push({ from: path.relative(root, src), to: path.relative(root, dst) });
+      fs.writeFileSync(logPath, JSON.stringify(entries, null, 2), 'utf8');
+    },
+  };
+}
+
+function freeBackupPath(dir: string, name: string): string {
+  let target = path.join(dir, name);
+  for (let i = 1; fs.existsSync(target); i++) target = path.join(dir, `${name}.${i}`);
+  return target;
+}
+
+function restoreGameLayout(gameDir: string): { restored: number; failed: string[] } {
+  const root = path.resolve(gameDir);
+  const logPath = path.join(root, LAYOUT_LOG_NAME);
+  if (!fs.existsSync(logPath)) return { restored: 0, failed: [] };
+  const entries: { from: string; to: string }[] = JSON.parse(fs.readFileSync(logPath, 'utf8'));
+  let restored = 0;
+  const failed: string[] = [];
+  for (const entry of [...entries].reverse()) {
+    const src = path.resolve(root, String(entry?.from ?? ''));
+    const dst = path.resolve(root, String(entry?.to ?? ''));
+    if (!isInsideDir(root, src) || !isInsideDir(root, dst) || !fs.existsSync(dst)) {
+      failed.push(String(entry?.from));
+      continue;
+    }
+    try {
+      if (fs.existsSync(src)) {
+        if (fs.statSync(src).isDirectory()) {
+          failed.push(entry.from);
+          continue;
+        }
+        fs.unlinkSync(src);
+      }
+      moveEntry(dst, src);
+      try { fs.rmdirSync(path.dirname(dst)); } catch {}
+      restored++;
+    } catch {
+      failed.push(entry.from);
+    }
+  }
+  if (failed.length === 0) {
+    fs.unlinkSync(logPath);
+  } else {
+    const remaining = entries.filter((e) => failed.includes(String(e?.from)));
+    fs.writeFileSync(logPath, JSON.stringify(remaining, null, 2), 'utf8');
+  }
+  return { restored, failed };
+}
+
+function containsGameExecutable(dir: string, depth: number): boolean {
+  if (depth < 0) return false;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  const names = ['eboot.bin', 'eboot.elf', 'app.exe', 'app.elf'];
+  if (entries.some((e) => e.isFile() && names.includes(e.name.toLowerCase()))) return true;
+  return entries.some((e) => e.isDirectory() && !e.name.startsWith('.') && e.name.toLowerCase() !== 'module_backups'
+    && containsGameExecutable(path.join(dir, e.name), depth - 1));
+}
+
 function sanitizeModuleDirectory(
+  layout: LayoutLog,
   dirPath: string,
   inputElfPath: string,
   sendLog: (msg: string, level?: string) => void,
@@ -1248,23 +1300,27 @@ function sanitizeModuleDirectory(
       continue;
     }
 
+    // The relinker only loads ELF files from module directories (SELF containers get unwrapped first),
+    // so non-ELF game assets are never isolated, whatever their name.
+    const header = Buffer.alloc(64);
+    let bytesRead = 0;
+    try {
+      const fd = fs.openSync(fullPath, 'r');
+      bytesRead = fs.readSync(fd, header, 0, 64, 0);
+      fs.closeSync(fd);
+    } catch {
+      continue;
+    }
+    const isElf = bytesRead >= 20 && header[0] === 0x7f && header[1] === 0x45 && header[2] === 0x4c && header[3] === 0x46;
+    const magic32 = bytesRead >= 4 ? header.readUInt32LE(0) : 0;
+    const isSelf = magic32 === 0x1d3d154f || magic32 === 0xeef51454;
+    if (!isElf && !isSelf) continue;
+
     let shouldIsolate = false;
     let isolateReason = '';
 
-    // Check 1: eboot executable files placed inside a module directory
-    if (lower.startsWith('eboot.') || lower === 'eboot') {
-      shouldIsolate = true;
-      isolateReason = 'Main executable binary in module directory';
-    }
-
-    // Check 2: Known backup files (.bak, .esbak, .old, .orig, .self_orig)
-    if (!shouldIsolate && (
-      lower.includes('.bak') ||
-      lower.includes('.esbak') ||
-      lower.includes('.old') ||
-      lower.includes('.orig') ||
-      lower.includes('.self_orig')
-    )) {
+    // Check 2: Known backup files (.bak, .esbak, .old, .orig, .self_orig, optionally with a _suffix)
+    if (BACKUP_SUFFIX.test(lower)) {
       shouldIsolate = true;
       isolateReason = 'Backup artifact';
     }
@@ -1294,47 +1350,22 @@ function sanitizeModuleDirectory(
     }
 
     // Check 4: Inspect ELF header to detect non-shared ELFs (ET_EXEC = 2, etc.)
-    if (!shouldIsolate) {
-      try {
-        const header = Buffer.alloc(64);
-        const fd = fs.openSync(fullPath, 'r');
-        const bytesRead = fs.readSync(fd, header, 0, 64, 0);
-        fs.closeSync(fd);
-
-        if (bytesRead >= 20) {
-          // ELF magic: 0x7F, 'E', 'L', 'F'
-          if (header[0] === 0x7f && header[1] === 0x45 && header[2] === 0x4c && header[3] === 0x46) {
-            const eType = header.readUInt16LE(16);
-            // In PlayStation 5 / ELF64:
-            // 3 = ET_DYN (Shared library / guest PRX)
-            // 0xfe18 = ET_SCE_DYNAMIC (PlayStation dynamic PRX)
-            // Anything else (e.g. 2 = ET_EXEC) causes relinker to fail with "ELF is not a shared module"
-            if (eType !== 3 && eType !== 0xfe18) {
-              shouldIsolate = true;
-              isolateReason = `Non-shared ELF (e_type=0x${eType.toString(16)})`;
-            }
-          }
-        }
-      } catch {}
+    // Check 4: non-shared ELFs (including decrypted eboot executables) make the relinker fail with
+    // "ELF is not a shared module". 3 = ET_DYN, 0xfe18 = ET_SCE_DYNAMIC.
+    if (!shouldIsolate && isElf) {
+      const eType = header.readUInt16LE(16);
+      if (eType !== 3 && eType !== 0xfe18) {
+        shouldIsolate = true;
+        isolateReason = `Non-shared ELF (e_type=0x${eType.toString(16)})`;
+      }
     }
 
     if (shouldIsolate) {
       try {
-        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-        const target = path.join(backupDir, entry);
-        if (fs.existsSync(target)) fs.unlinkSync(target);
-        fs.renameSync(fullPath, target);
+        layout.move(fullPath, freeBackupPath(backupDir, entry));
         sendLog(`[AnyPS5] Isolated ${entry} (${isolateReason}) to module_backups/`, 'info');
-      } catch {
-        try {
-          if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-          const target = path.join(backupDir, entry);
-          fs.copyFileSync(fullPath, target);
-          fs.unlinkSync(fullPath);
-          sendLog(`[AnyPS5] Isolated ${entry} (${isolateReason}) to module_backups/`, 'info');
-        } catch (err) {
-          console.warn(`Failed to isolate ${entry}:`, err);
-        }
+      } catch (err) {
+        console.warn(`Failed to isolate ${entry}:`, err);
       }
     }
   }
@@ -1351,20 +1382,26 @@ function fixGameHierarchyInPlace(
   if (!fs.existsSync(resolved)) {
     throw new Error(`Game directory does not exist: "${resolved}"`);
   }
+  // Never reorganize a folder that does not actually contain a PS5 title (e.g. a wrongly picked parent folder).
+  if (!containsGameExecutable(resolved, 7)) {
+    throw new Error(`No PS5 executable (eboot.bin / eboot.elf / app.exe / app.elf) found in "${resolved}". The folder was left untouched.`);
+  }
+  const layout = openLayoutLog(resolved);
 
   // 1. Flatten single wrapper directories if present in-place (handles nested wrappers like [DLPS].../[DLPS]...)
   try {
     for (let depth = 0; depth < 5; depth++) {
-      const rootEntries = fs.readdirSync(resolved);
+      const rootEntries = fs.readdirSync(resolved).filter((e) => e !== LAYOUT_LOG_NAME);
       if (rootEntries.length !== 1) break;
       const singlePath = path.join(resolved, rootEntries[0]);
       if (!fs.statSync(singlePath).isDirectory() || ['app0', 'libs'].includes(rootEntries[0])) break;
+      if (!containsGameExecutable(singlePath, 6)) break;
 
       if (rootEntries[0].toLowerCase().endsWith('-app0') || rootEntries[0].toLowerCase().includes('app0')) {
         const app0Target = path.join(resolved, 'app0');
         if (!fs.existsSync(app0Target)) {
           sendLog(`[AnyPS5] Normalizing wrapper directory "${rootEntries[0]}" -> "app0"...`, 'info');
-          fs.renameSync(singlePath, app0Target);
+          layout.move(singlePath, app0Target);
         }
         break;
       } else {
@@ -1374,7 +1411,7 @@ function fixGameHierarchyInPlace(
           const src = path.join(singlePath, inner);
           const dst = path.join(resolved, inner);
           if (!fs.existsSync(dst)) {
-            fs.renameSync(src, dst);
+            layout.move(src, dst);
           }
         }
         try {
@@ -1393,24 +1430,14 @@ function fixGameHierarchyInPlace(
     fs.mkdirSync(app0Dir, { recursive: true });
 
     // Move all game assets and folders into app0/ in-place (instant O(1) filesystem metadata rename)
-    const skipEntries = new Set(['app0', 'libs', 'app.exe', 'app.elf', 'eboot.elf', 'relinker.log', 'run_test.log', 'run_game.log', 'run_extended.log']);
+    const skipEntries = new Set(['app0', 'libs', 'app.exe', 'app.elf', 'eboot.elf', 'relinker.log', 'run_test.log', 'run_game.log', 'run_extended.log', LAYOUT_LOG_NAME]);
     const allEntries = fs.readdirSync(resolved);
     for (const entry of allEntries) {
       if (skipEntries.has(entry)) continue;
       const src = path.join(resolved, entry);
       const dst = path.join(app0Dir, entry);
       if (!fs.existsSync(dst)) {
-        try {
-          fs.renameSync(src, dst);
-        } catch {
-          if (fs.statSync(src).isDirectory()) {
-            fs.cpSync(src, dst, { recursive: true });
-            fs.rmSync(src, { recursive: true, force: true });
-          } else {
-            fs.copyFileSync(src, dst);
-            fs.unlinkSync(src);
-          }
-        }
+        layout.move(src, dst);
       }
     }
   } else {
@@ -1425,17 +1452,7 @@ function fixGameHierarchyInPlace(
             const src = path.join(nestedApp0, item);
             const dst = path.join(app0Dir, item);
             if (!fs.existsSync(dst)) {
-              try {
-                fs.renameSync(src, dst);
-              } catch {
-                if (fs.statSync(src).isDirectory()) {
-                  fs.cpSync(src, dst, { recursive: true });
-                  fs.rmSync(src, { recursive: true, force: true });
-                } else {
-                  fs.copyFileSync(src, dst);
-                  fs.unlinkSync(src);
-                }
-              }
+              layout.move(src, dst);
             }
           }
           try { fs.rmdirSync(nestedApp0); } catch {}
@@ -1449,7 +1466,7 @@ function fixGameHierarchyInPlace(
   // 3. Deploy clean-room PRX system libraries and runtime DLLs into libs/ and application directory
   const gameLibs = path.join(resolved, 'libs');
   if (!fs.existsSync(gameLibs) || !fs.statSync(gameLibs).isDirectory()) {
-    if (fs.existsSync(gameLibs)) fs.rmSync(gameLibs, { recursive: true, force: true });
+    if (fs.existsSync(gameLibs)) layout.move(gameLibs, freeBackupPath(path.join(resolved, 'module_backups'), 'libs'));
     fs.mkdirSync(gameLibs, { recursive: true });
   }
 
@@ -1597,11 +1614,7 @@ function fixGameHierarchyInPlace(
   const rootSceSysUpper = path.join(resolved, 'SCE_SYS');
 
   if (fs.existsSync(app0SceSysUpper) && !fs.existsSync(app0SceSys)) {
-    try {
-      fs.renameSync(app0SceSysUpper, app0SceSys);
-    } catch {
-      try { fs.cpSync(app0SceSysUpper, app0SceSys, { recursive: true }); } catch {}
-    }
+    try { layout.move(app0SceSysUpper, app0SceSys); } catch {}
   }
 
   const activeRootSys = fs.existsSync(rootSceSys) ? rootSceSys : (fs.existsSync(rootSceSysUpper) ? rootSceSysUpper : null);
@@ -1828,12 +1841,7 @@ function fixGameHierarchyInPlace(
         const src = path.join(sceModulesDir, f);
         const dst = path.join(sceModuleDir, f);
         if (!fs.existsSync(dst)) {
-          try {
-            fs.renameSync(src, dst);
-          } catch {
-            fs.copyFileSync(src, dst);
-            fs.unlinkSync(src);
-          }
+          layout.move(src, dst);
         }
       }
       try { fs.rmdirSync(sceModulesDir); } catch {}
@@ -1942,10 +1950,10 @@ function fixGameHierarchyInPlace(
 
   // Ensure all module directories, app0, and root are sanitized for backup artifacts (.bak_*), non-shared ELFs, and conflicting hardware stubs
   if (fs.existsSync(targetModuleDir)) {
-    sanitizeModuleDirectory(targetModuleDir, inputElf, sendLog, knownSystemLibs, needsGuestLibc);
+    sanitizeModuleDirectory(layout, targetModuleDir, inputElf, sendLog, knownSystemLibs, needsGuestLibc);
   }
   if (fs.existsSync(app0Dir)) {
-    sanitizeModuleDirectory(app0Dir, inputElf, sendLog, knownSystemLibs, needsGuestLibc);
+    sanitizeModuleDirectory(layout, app0Dir, inputElf, sendLog, knownSystemLibs, needsGuestLibc);
   }
 
   // Clean up any obsolete hardware driver artifacts that conflict with AnyPS5 native translations
@@ -2029,9 +2037,12 @@ function fixGameHierarchyInPlace(
         sendLog(`[AnyPS5] Isolating dummy dumper stub folder "${dirNameLower}" to module_backups/`, 'info');
         const parentBackup = path.join(path.dirname(currentDir), 'module_backups', dirNameLower);
         try {
-          if (!fs.existsSync(path.dirname(parentBackup))) fs.mkdirSync(path.dirname(parentBackup), { recursive: true });
-          if (fs.existsSync(parentBackup)) fs.rmSync(parentBackup, { recursive: true, force: true });
-          fs.renameSync(currentDir, parentBackup);
+          if (fs.existsSync(parentBackup)) {
+            // The original is already backed up; this copy was regenerated by the launch-mode fakelib bridge.
+            fs.rmSync(currentDir, { recursive: true, force: true });
+          } else {
+            layout.move(currentDir, parentBackup);
+          }
         } catch (fakeMoveErr) {
           console.warn('Failed to move fake stub folder:', fakeMoveErr);
         }
@@ -2060,10 +2071,7 @@ function fixGameHierarchyInPlace(
             lower.endsWith('.sprx') ||
             lower.includes('.prx.') ||
             lower.includes('.sprx.') ||
-            lower.includes('.bak') ||
-            lower.includes('.esbak') ||
-            lower.includes('.old') ||
-            lower.includes('.orig')
+            BACKUP_SUFFIX.test(lower)
           ) {
             prxFiles.push(entry);
           }
@@ -2072,7 +2080,7 @@ function fixGameHierarchyInPlace(
 
       if (prxFiles.length > 0) {
         // Sanitize this directory: filter out eboot binaries, non-shared ELFs, backup artifacts, and fake system stubs
-        sanitizeModuleDirectory(currentDir, inputElf, sendLog, knownSystemLibs, needsGuestLibc);
+        sanitizeModuleDirectory(layout, currentDir, inputElf, sendLog, knownSystemLibs, needsGuestLibc);
 
         const backupDir = path.join(currentDir, 'module_backups');
 
@@ -2097,10 +2105,8 @@ function fixGameHierarchyInPlace(
                 }
               }
               if (unwrapSuccess) {
-                if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-                fs.copyFileSync(fullPrx, path.join(backupDir, prx + '.self_orig'));
-                fs.copyFileSync(unwrapped, fullPrx);
-                fs.unlinkSync(unwrapped);
+                layout.move(fullPrx, freeBackupPath(backupDir, prx + '.self_orig'));
+                moveEntry(unwrapped, fullPrx);
                 sendLog(`[AnyPS5] Unwrapped encrypted module: ${path.relative(app0Dir, fullPrx)}`, 'info');
               }
             }
@@ -2203,10 +2209,7 @@ function fixGameHierarchyInPlace(
           // Isolate conflicting duplicate to that directory's module_backups/
           const loserBackupDir = path.join(loser.dir, 'module_backups');
           try {
-            if (!fs.existsSync(loserBackupDir)) fs.mkdirSync(loserBackupDir, { recursive: true });
-            const target = path.join(loserBackupDir, loser.entry);
-            if (fs.existsSync(target)) fs.unlinkSync(target);
-            fs.renameSync(loser.fullPath, target);
+            layout.move(loser.fullPath, freeBackupPath(loserBackupDir, loser.entry));
             sendLog(`[AnyPS5] Deduplicated guest module "${loser.entry}" (conflicting duplicate in "${path.relative(app0Dir, loser.fullPath)}" isolated to module_backups/)`, 'info');
           } catch (dedupErr) {
             console.warn(`Failed to isolate duplicate module ${loser.fullPath}:`, dedupErr);
@@ -2584,7 +2587,7 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
   }
 
   const defaultExeName = getDefaultOutputExecutableName();
-  const safeGameExe = game.executableName && !['eboot.bin', 'eboot.elf'].includes(game.executableName.toLowerCase())
+  const safeGameExe = typeof game.executableName === 'string' && ['app.exe', 'app.elf', 'app.macho'].includes(game.executableName.toLowerCase())
     ? game.executableName
     : null;
 
@@ -2941,6 +2944,38 @@ ipcMain.handle('anyps5:kill-game', async () => {
     return true;
   }
   return false;
+});
+
+ipcMain.handle('anyps5:restore-game-layout', async (_, gamePath: unknown) => {
+  if (typeof gamePath !== 'string' || !gamePath || !fs.existsSync(gamePath) || !fs.statSync(gamePath).isDirectory()) {
+    return { success: false, error: 'Game folder not found.' };
+  }
+  if (activeGameProcess || activeRelinkerProcess) {
+    return { success: false, error: 'Stop the running game or relink before restoring the folder layout.' };
+  }
+  if (!fs.existsSync(path.join(gamePath, LAYOUT_LOG_NAME))) {
+    return { success: false, error: 'AnyPS5 Studio has no recorded changes for this folder.' };
+  }
+  if (mainWindow) {
+    const answer = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['Restore', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Restore Original Folder Layout',
+      message: 'Move every file AnyPS5 Studio relocated back to where it was?',
+      detail: 'Files Studio added (libs/, eboot.elf, app.exe, runtime DLLs) are left in place. Launching the game again will re-apply the AnyPS5 layout.',
+    });
+    if (answer.response !== 0) return { success: false, cancelled: true };
+  }
+  try {
+    const { restored, failed } = restoreGameLayout(gamePath);
+    return failed.length
+      ? { success: false, restored, error: `${failed.length} item(s) could not be restored: ${failed.slice(0, 5).join(', ')}` }
+      : { success: true, restored };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  }
 });
 
 // IPC Handler: Cancel Running Relinker Pipeline
@@ -3349,7 +3384,11 @@ ipcMain.handle('anyps5:download-pr-build', async (_, { prNumber, artifactUrl, he
   );
 });
 
+const isPrNumber = (n: unknown): n is number => Number.isInteger(n) && (n as number) > 0;
+const isMergedBuildId = (id: unknown): id is string => typeof id === 'string' && /^merged-\d+(?:-\d+)*$/.test(id);
+
 ipcMain.handle('anyps5:set-active-pr-build', async (_, prNumber: number) => {
+  if (!isPrNumber(prNumber)) return false;
   const runtimeId = `custom-pr-${prNumber}`;
   const success = getRuntimeManager().setActiveGlobalRuntime(runtimeId);
   if (success) {
@@ -3378,6 +3417,7 @@ ipcMain.handle('anyps5:revert-to-default-build', async () => {
 });
 
 ipcMain.handle('anyps5:delete-pr-build', async (_, prNumber: number) => {
+  if (!isPrNumber(prNumber)) return false;
   const runtimeId = `custom-pr-${prNumber}`;
   getRuntimeManager().removeRuntime(runtimeId);
 
@@ -3453,6 +3493,7 @@ ipcMain.handle('anyps5:get-merged-builds', async () => {
 });
 
 ipcMain.handle('anyps5:set-active-merged-build', async (_, buildId: string) => {
+  if (!isMergedBuildId(buildId)) return false;
   const baseDir = getExperimentalBuildsDir();
   const exePath = path.join(baseDir, buildId, getRelinkerBinaryName());
   if (fs.existsSync(exePath)) {
@@ -3464,6 +3505,7 @@ ipcMain.handle('anyps5:set-active-merged-build', async (_, buildId: string) => {
 });
 
 ipcMain.handle('anyps5:delete-merged-build', async (_, buildId: string) => {
+  if (!isMergedBuildId(buildId)) return false;
   const baseDir = getExperimentalBuildsDir();
   const dirPath = path.join(baseDir, buildId);
   const exePath = path.join(dirPath, getRelinkerBinaryName());

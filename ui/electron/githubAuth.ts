@@ -12,6 +12,7 @@ export class GitHubAuthService {
   private userDataDir: string;
   private authStorePath: string;
   private clientId: string;
+  private sessionToken: string | null = null;
 
   constructor(userDataDir: string, clientId: string = DEFAULT_CLIENT_ID) {
     this.userDataDir = userDataDir;
@@ -23,17 +24,18 @@ export class GitHubAuthService {
    * Securely store access token using Windows DPAPI (via Electron safeStorage)
    */
   public saveToken(token: string): void {
+    this.sessionToken = token.trim();
     try {
       if (safeStorage.isEncryptionAvailable()) {
-        const encrypted = safeStorage.encryptString(token.trim());
-        fs.writeFileSync(this.authStorePath, encrypted);
+        fs.writeFileSync(this.authStorePath, safeStorage.encryptString(this.sessionToken));
       } else {
-        // Fallback for environments where safeStorage is unavailable
-        const obfuscated = Buffer.from(token.trim(), 'utf8').toString('base64');
-        fs.writeFileSync(this.authStorePath, obfuscated, 'utf8');
+        // No OS keychain (common on Linux without a secret service): keep the token for this session only
+        // instead of writing it to disk in readable form.
+        if (fs.existsSync(this.authStorePath)) fs.unlinkSync(this.authStorePath);
+        console.warn('OS secure storage unavailable; GitHub token kept in memory for this session only.');
       }
     } catch (err) {
-      console.error('Failed to securely save GitHub token:', err);
+      console.error('Failed to securely save GitHub token:', (err as Error)?.message || err);
       throw new Error('Failed to encrypt and store GitHub authorization token.');
     }
   }
@@ -42,6 +44,7 @@ export class GitHubAuthService {
    * Retrieve and decrypt access token
    */
   public getToken(): string | null {
+    if (this.sessionToken) return this.sessionToken;
     try {
       if (!fs.existsSync(this.authStorePath)) {
         return null;
@@ -49,16 +52,24 @@ export class GitHubAuthService {
       const raw = fs.readFileSync(this.authStorePath);
       if (safeStorage.isEncryptionAvailable()) {
         try {
-          return safeStorage.decryptString(raw);
+          this.sessionToken = safeStorage.decryptString(raw);
+          return this.sessionToken;
         } catch {
-          // In case it was stored as fallback string
-          return raw.toString('utf8');
+          // Legacy builds wrote base64 plain text here when no keychain was available: re-save it encrypted.
+          const legacy = Buffer.from(raw.toString('utf8'), 'base64').toString('utf8');
+          if (!/^[\w-]+$/.test(legacy)) return null;
+          this.saveToken(legacy);
+          return legacy;
         }
-      } else {
-        return Buffer.from(raw.toString('utf8'), 'base64').toString('utf8');
       }
+      // Legacy plain-text file and still no keychain: use it this session, but remove it from disk.
+      const legacy = Buffer.from(raw.toString('utf8'), 'base64').toString('utf8');
+      fs.unlinkSync(this.authStorePath);
+      if (!/^[\w-]+$/.test(legacy)) return null;
+      this.sessionToken = legacy;
+      return legacy;
     } catch (err) {
-      console.warn('Could not read or decrypt stored GitHub token:', err);
+      console.warn('Could not read or decrypt stored GitHub token:', (err as Error)?.message || err);
       return null;
     }
   }
@@ -67,6 +78,7 @@ export class GitHubAuthService {
    * Clear stored token (disconnect)
    */
   public disconnect(): boolean {
+    this.sessionToken = null;
     try {
       if (fs.existsSync(this.authStorePath)) {
         fs.unlinkSync(this.authStorePath);
@@ -89,9 +101,9 @@ export class GitHubAuthService {
         'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': 'AnyPS5-Studio-Desktop',
       },
+      // No scope: reading public repositories and downloading their Actions artifacts needs no write access.
       body: new URLSearchParams({
         client_id: this.clientId,
-        scope: 'public_repo',
       }).toString(),
     });
 
@@ -105,7 +117,7 @@ export class GitHubAuthService {
     console.log('GitHub Device Code response:', JSON.stringify({ user_code: data.user_code, device_code: data.device_code ? '[PRESENT]' : '[MISSING]', interval: data.interval, expires_in: data.expires_in }));
 
     if (!data.device_code || !data.user_code) {
-      console.error('GitHub Device Code response missing required fields:', JSON.stringify(data));
+      console.error('GitHub Device Code response missing required fields:', data.error || 'unknown');
       throw new Error(data.error_description || data.error || 'GitHub did not return a valid device code.');
     }
 
@@ -148,24 +160,23 @@ export class GitHubAuthService {
     }
 
     const responseText = await res.text();
-    console.log('checkDeviceCode response status:', res.status, 'body:', responseText.substring(0, 500));
 
     if (!res.ok) {
-      return { status: 'error', error: `HTTP ${res.status}: ${responseText.substring(0, 200)}` };
+      return { status: 'error', error: `HTTP ${res.status}` };
     }
 
     let data: any;
     try {
       data = JSON.parse(responseText);
     } catch {
-      console.error('checkDeviceCode: failed to parse JSON response:', responseText.substring(0, 300));
+      console.error('checkDeviceCode: failed to parse JSON response.');
       return { status: 'error', error: 'GitHub returned invalid JSON response.' };
     }
 
     if (data.access_token) {
       console.log('checkDeviceCode: access_token received, saving token.');
       this.saveToken(data.access_token);
-      return { status: 'approved', accessToken: data.access_token };
+      return { status: 'approved' };
     }
 
     if (data.error === 'authorization_pending') {
@@ -178,7 +189,7 @@ export class GitHubAuthService {
       return { status: 'expired', error: 'Device code expired. Please request a new code.' };
     }
 
-    console.error('checkDeviceCode unexpected response:', JSON.stringify(data));
+    console.error('checkDeviceCode unexpected response:', data.error || 'unknown');
     return { status: 'error', error: data.error_description || data.error || 'Authorization failed' };
   }
 
@@ -449,6 +460,13 @@ export class GitHubAuthService {
     runtimeManager: RuntimeManager,
     onProgress?: (status: 'downloading' | 'extracting' | 'ready' | 'error', progress: number, error?: string) => void
   ): Promise<{ success: boolean; runtimeId?: string; error?: string }> {
+    if (typeof commit?.sha !== 'string' || !/^[0-9a-f]{40}$/i.test(commit.sha)) {
+      const err = 'Invalid commit SHA.';
+      onProgress?.('error', 0, err);
+      return { success: false, error: err };
+    }
+    commit = { ...commit, shortSha: commit.sha.slice(0, 7).toLowerCase(), message: String(commit.message ?? '') };
+
     const token = this.getToken();
     if (!token) {
       const err = 'GitHub authorization required. Please connect your GitHub account first.';

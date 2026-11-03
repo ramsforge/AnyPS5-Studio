@@ -50,6 +50,7 @@ declare global {
       scanDirectory?: (rootPath: string) => Promise<DiscoveredGameCandidate[]>;
       auditGameNids?: (game: any, forceRefresh?: boolean) => Promise<NidAuditResult>;
       getGames: () => Promise<GameItem[]>;
+      restoreGameLayout?: (gamePath: string) => Promise<{ success: boolean; restored?: number; cancelled?: boolean; error?: string }>;
       saveGames: (games: GameItem[]) => Promise<void>;
       getSettings?: () => Promise<AppSettings>;
       saveSettings?: (settings: Partial<AppSettings>) => Promise<boolean>;
@@ -359,6 +360,13 @@ class ApiBridge {
       return await window.anyps5.stopGame(pid);
     }
     return true;
+  }
+
+  public async restoreGameLayout(gamePath: string): Promise<{ success: boolean; restored?: number; cancelled?: boolean; error?: string }> {
+    if (window.anyps5?.restoreGameLayout) {
+      return await window.anyps5.restoreGameLayout(gamePath);
+    }
+    return { success: false, error: 'Restoring folder layout requires the desktop app.' };
   }
 
   public onGameLog(callback: (data: { level: string; message: string; timestamp?: string }) => void): () => void {

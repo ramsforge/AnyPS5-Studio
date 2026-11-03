@@ -1029,6 +1029,11 @@ export class LocalBuilderService {
     onLog: (msg: BuilderLogMessage) => void,
     onStatus: (status: BuildProgressStatus) => void
   ): Promise<BuildResult> {
+    if (!Number.isInteger(prNumber) || prNumber <= 0) {
+      return { success: false, error: 'Invalid pull request number.' };
+    }
+    headSha = typeof headSha === 'string' && /^[0-9a-f]{7,40}$/i.test(headSha) ? headSha : 'HEAD';
+    prTitle = String(prTitle ?? '');
     if (this.isBuilding) {
       return { success: false, error: 'A local compilation is already in progress.' };
     }
@@ -1363,6 +1368,9 @@ export class LocalBuilderService {
     onLog: (msg: BuilderLogMessage) => void,
     onStatus: (status: BuildProgressStatus) => void
   ): Promise<MultiPRBuildResult> {
+    if (!Array.isArray(prNumbers) || prNumbers.length === 0 || !prNumbers.every((n) => Number.isInteger(n) && n > 0)) {
+      return { success: false, error: 'Invalid pull request numbers.' };
+    }
     if (this.isBuilding) {
       return { success: false, error: 'A local compilation is already in progress.' };
     }

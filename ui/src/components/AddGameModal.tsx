@@ -252,7 +252,7 @@ export const AddGameModal: React.FC<AddGameModalProps> = ({
   const selectableCount = candidates ? candidates.filter((c) => !isAlreadyInLibrary(c)).length : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-fade-in select-none">
+    <div data-nav-scope className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-fade-in select-none">
       <div className={`relative w-full ${mode === 'scan' ? 'max-w-2xl' : 'max-w-lg'} bg-[#0b0e14]/95 rounded-2xl border border-white/10 overflow-hidden shadow-2xl p-6 transition-all duration-200`}>
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4">

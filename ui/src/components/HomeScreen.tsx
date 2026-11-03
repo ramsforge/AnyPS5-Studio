@@ -37,6 +37,14 @@ interface HomeScreenProps {
   onResetDemoGames?: () => void;
 }
 
+function formatPlaytime(game: GameItem): string {
+  if (game.playTimeSeconds === undefined) return game.playTime || '0 mins';
+  const mins = Math.floor(game.playTimeSeconds / 60);
+  if (mins < 1) return 'Under 1 min';
+  const hrs = Math.floor(mins / 60);
+  return hrs > 0 ? `${hrs} hr${hrs === 1 ? '' : 's'} ${mins % 60} mins` : `${mins} min${mins === 1 ? '' : 's'}`;
+}
+
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   games,
   selectedGameIndex,
@@ -54,7 +62,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [layoutNotice, setLayoutNotice] = useState<string | null>(null);
   const selectedGame = games[selectedGameIndex] || games[0];
 
-  useEffect(() => setLayoutNotice(null), [selectedGame?.id, showTechnicalDrawer]);
+  // Remove asks once more before acting; any change of game or closing the panel cancels it.
+  const [confirmRemove, setConfirmRemove] = useState<boolean>(false);
+  useEffect(() => {
+    setLayoutNotice(null);
+    setConfirmRemove(false);
+  }, [selectedGame?.id, showTechnicalDrawer]);
 
   const handleRestoreLayout = async () => {
     if (!selectedGame) return;
@@ -256,6 +269,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             return (
               <button
                 key={game.id}
+                data-game-tile
                 ref={(el) => {
                   itemRefs.current[idx] = el;
                 }}
@@ -406,7 +420,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
       {/* Contextual Technical Specs Drawer (Sliding Console Panel) */}
       {showTechnicalDrawer && selectedGame && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-50 flex justify-end select-none animate-fade-in">
+        <div data-nav-scope className="fixed inset-0 z-50 flex justify-end select-none animate-fade-in">
           {/* Dimmed backdrop for focus and easy outside click to close */}
           <div
             onClick={() => {
@@ -567,8 +581,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
                 <div>
                   <span className="text-[10px] text-neutral-500 uppercase tracking-wider font-semibold block mb-0.5">Play Statistics</span>
-                  <p className="text-white">{selectedGame.playTime || '0 hrs'} total playtime</p>
-                  <p className="text-neutral-400 text-[11px]">Last session: {selectedGame.lastPlayed || 'Never'}</p>
+                  <p className="text-white">{formatPlaytime(selectedGame)} total playtime</p>
+                  <p className="text-neutral-400 text-[11px]">
+                    Last session: {selectedGame.lastPlayedAt
+                      ? new Date(selectedGame.lastPlayedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                      : selectedGame.lastPlayed || 'Never'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -600,14 +618,28 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               {onDeleteGame && (
                 <button
                   onClick={() => {
+                    if (!confirmRemove) {
+                      audioService.playNavTick();
+                      setConfirmRemove(true);
+                      return;
+                    }
                     setShowTechnicalDrawer(false);
                     onDeleteGame(selectedGame.id);
                   }}
-                  className="w-full py-2 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-400 font-semibold text-xs tracking-wide border border-red-500/20 transition-colors flex items-center justify-center space-x-1.5"
+                  className={`w-full py-2 rounded-full font-semibold text-xs tracking-wide border transition-colors flex items-center justify-center space-x-1.5 ${
+                    confirmRemove
+                      ? 'bg-red-500 hover:bg-red-400 text-white border-red-400'
+                      : 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/20'
+                  }`}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  <span>Remove From Library</span>
+                  <span>{confirmRemove ? 'Press again to remove' : 'Remove From Library'}</span>
                 </button>
+              )}
+              {onDeleteGame && confirmRemove && (
+                <p className="text-[11px] text-neutral-400 text-center leading-relaxed">
+                  Only the library entry is removed; the game folder stays on disk.
+                </p>
               )}
             </div>
           </div>
@@ -617,7 +649,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
       {/* Demo / Sample Preset Notice Dialog */}
       {sampleNoticeGame && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-fade-in select-none">
+        <div data-nav-scope className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-fade-in select-none">
           <div className="relative w-full max-w-md bg-[#0b0e14]/95 rounded-2xl border border-white/10 overflow-hidden shadow-2xl p-6">
             <div className="flex items-center space-x-2.5 text-amber-400 mb-3">
               <AlertTriangle className="w-5 h-5" />

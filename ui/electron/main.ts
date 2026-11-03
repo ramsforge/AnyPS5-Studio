@@ -334,8 +334,38 @@ ipcMain.handle('anyps5:get-games', async () => {
   return [];
 });
 
+// Adds a finished session to the game's total playtime and last-played time in the library file.
+function recordPlaySession(gameId: string, startedAt: number) {
+  const seconds = Math.round((Date.now() - startedAt) / 1000);
+  if (!gameId || seconds < 1) return;
+  try {
+    const list = JSON.parse(fs.readFileSync(gamesStorePath, 'utf8'));
+    const g = Array.isArray(list) ? list.find((x: any) => x?.id === gameId) : null;
+    if (!g) return;
+    g.playTimeSeconds = (Number(g.playTimeSeconds) || 0) + seconds;
+    g.lastPlayedAt = new Date().toISOString();
+    fs.writeFileSync(gamesStorePath, JSON.stringify(list, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Failed to record play session:', err);
+  }
+}
+
 ipcMain.handle('anyps5:save-games', async (_, games) => {
   try {
+    // Playtime is written by the main process when a game exits; a save from a renderer that has not reloaded
+    // the library yet must not roll it back.
+    if (Array.isArray(games) && fs.existsSync(gamesStorePath)) {
+      try {
+        const saved = JSON.parse(fs.readFileSync(gamesStorePath, 'utf8'));
+        const byId = new Map((Array.isArray(saved) ? saved : []).map((g: any) => [g?.id, g]));
+        for (const g of games) {
+          const prev: any = byId.get(g?.id);
+          if (!prev) continue;
+          g.playTimeSeconds = Math.max(Number(prev.playTimeSeconds) || 0, Number(g.playTimeSeconds) || 0) || undefined;
+          if (prev.lastPlayedAt && (!g.lastPlayedAt || prev.lastPlayedAt > g.lastPlayedAt)) g.lastPlayedAt = prev.lastPlayedAt;
+        }
+      } catch {}
+    }
     fs.writeFileSync(gamesStorePath, JSON.stringify(games, null, 2), 'utf8');
     if (Array.isArray(games)) {
       const unsized = games.filter((g) => g && g.path && (!g.sizeBytes || g.sizeBytes === 15 * 1024 * 1024 * 1024));
@@ -2924,6 +2954,7 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
       return { error: `Could not start "${targetExe}". Check that the file exists and that antivirus software is not blocking it.` };
     }
     activeGameProcess = child;
+    const startedAt = Date.now();
     // Output and exit of a process that was stopped or replaced must not reach the launcher of the next session.
     const isCurrent = () => activeGameProcess === child;
     try {
@@ -2965,6 +2996,7 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
     });
 
     child.on('close', (code, signal) => {
+      recordPlaySession(game.id, startedAt);
       if (!isCurrent()) return;
       const isCrash = (code !== 0 && code !== null) || Boolean(signal);
       const exitCodeHex = code !== null ? '0x' + (code >>> 0).toString(16).toUpperCase() : (signal || 'null');

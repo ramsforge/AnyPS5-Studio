@@ -829,7 +829,7 @@ export const RuntimeManager: React.FC<RuntimeManagerProps> = ({
 
       {/* GitHub Authentication Modal (RFC 8628 Device Flow) */}
       {isAuthModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+        <div data-nav-scope className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-md p-6 rounded-2xl bg-[#080b11] border border-white/10 shadow-2xl space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
               <div className="flex items-center space-x-2 text-white font-semibold text-sm">

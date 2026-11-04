@@ -657,7 +657,7 @@ async function auditGameNids(game: any, forceRefresh = false) {
   }
 
   if (!lastFailure) {
-    return nidAuditError('The NID audit needs Python 3, which was not found. Install it from python.org (tick "Add python.exe to PATH"), then click Refresh.');
+    return nidAuditError('The NID audit needs Python 3, which was not found. Install it from python.org (tick "Add python.exe to PATH"), then press the re-audit button (circular arrow).');
   }
   return nidAuditError(`The NID audit script failed: ${lastFailure}`);
 }

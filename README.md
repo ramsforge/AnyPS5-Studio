@@ -1,209 +1,192 @@
+<div align="center">
+
 # AnyPS5 Studio
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/01_HomeScreen_DreamingSarah.png" alt="AnyPS5 Studio Hero" width="950" />
-</p>
+**A PlayStation 5–style desktop launcher for [AnyPS5](https://github.com/boykopovar/AnyPS5): import a decrypted PS5 game, relink it and play it on Windows or Linux, with no setup.**
 
-<p align="center">
-  <strong>Native PlayStation 5 Static Binary Relinker & Modern Desktop Gaming Studio</strong>
-</p>
+[![Release](https://img.shields.io/github/v/release/ramsforge/AnyPS5-Studio?color=0070d1&label=release)](https://github.com/ramsforge/AnyPS5-Studio/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/ramsforge/AnyPS5-Studio/total?color=34d399)](https://github.com/ramsforge/AnyPS5-Studio/releases)
+![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20x64-555)
+[![License](https://img.shields.io/badge/license-GPL--2.0-blue)](LICENSE)
 
+[**Download**](https://github.com/ramsforge/AnyPS5-Studio/releases/latest) · [What's new](https://github.com/ramsforge/AnyPS5-Studio/releases) · [Quick start](#quick-start) · [Troubleshooting](#troubleshooting) · [Report an issue](https://github.com/ramsforge/AnyPS5-Studio/issues)
 
-<p align="center">
-  <a href="https://github.com/ramsforge/AnyPS5-Studio/releases"><img src="https://img.shields.io/github/v/release/ramsforge/AnyPS5-Studio?color=0070d1&label=Release&logo=playstation" alt="Release" /></a>
-  <a href="https://github.com/ramsforge/AnyPS5-Studio/actions"><img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20Linux%20x64-34d399" alt="Platforms" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--2.0-blue.svg" alt="License" /></a>
-  <a href="https://github.com/ramsforge/AnyPS5-Studio"><img src="https://img.shields.io/badge/Architecture-Static%20Binary%20Relinking-purple" alt="Architecture" /></a>
-</p>
+<img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/01_HomeScreen_DreamingSarah.png" alt="AnyPS5 Studio home screen" width="900" />
 
----
+</div>
 
-AnyPS5 Studio is an all-in-one desktop launcher, management interface, and static binary relinker for running decrypted PlayStation 5 executables natively on **Windows x64** and **Linux x64**.
+## What is this?
 
-Unlike traditional virtual-machine emulators, AnyPS5 operates via **static binary relinking**. The PlayStation 5 executable (ELF) is analyzed, translated at the machine instruction level, and converted directly into native host executables (`.exe` on Windows, native ELF `.elf` on Linux). Games execute directly on your host CPU and GPU through clean-room high-level emulation (HLE) system libraries and native Vulkan / DirectX 12 rendering pipelines.
+[AnyPS5](https://github.com/boykopovar/AnyPS5) is not an emulator. It **relinks** a decrypted PS5 executable into a native Windows (`app.exe`) or Linux (`app.elf`) program that runs directly on your CPU and GPU, against clean-room reimplementations of the PS5 system libraries and a Vulkan renderer.
 
-[Latest Releases](https://github.com/ramsforge/AnyPS5-Studio/releases) | [Architecture Documentation](docs/dev/ARCHITECTURE.md) | [Build Instructions](docs/dev/BUILD.md)
+AnyPS5 Studio is the app around it. It ships the relinker and libraries, prepares your game folders the way the relinker expects, and gives you a console-style library to launch games from, so you never have to touch a command line.
 
----
+> [!NOTE]
+> Studio is a launcher and UI only. Game compatibility depends on the AnyPS5 core: a game that does not run usually needs an upstream fix, not a Studio one. See [Where to report problems](#where-to-report-problems).
 
-## Interface Showcase
+## Features
 
-### 1. PlayStation 5 Console Experience
-Immersive console-grade interface with dynamic background hero artwork, smooth navigation, DualSense wireless controller status, and detailed compatibility breakdowns.
+- **Console-style library**: cover art, hero backdrops, UI sounds, and playtime and last-played tracking for every game.
+- **Full controller support**: navigate every screen with a DualSense or Xbox controller (see [Controls](#controls)), with optional rumble.
+- **One-click relinking**: *Relinker Studio* picks the right settings for your PC in Simple mode; Advanced mode exposes target OS, CPU translation, subsystem and import filtering.
+- **Hands-off folder preparation**: unpacks wrapper folders, sets up `app0/`, unwraps SELF modules, deploys the system libraries and isolates leftovers that break the relinker. Every change is recorded, and **Restore Original Folder Layout** puts the dump back.
+- **Launcher with crash diagnostics**: live logs, and plain-language explanations for common failures (missing modules, unimplemented PS5 APIs, Vulkan or Linux library problems).
+- **Bulk import**: scan a folder to add every PS5 title inside it.
+- **NID inspector**: see which imported PS5 functions the libraries implement, stub or miss.
+- **Runtime manager**: switch between the bundled core, CI builds of upstream commits, community pull requests built on your PC, or your own build, globally or per game.
+- **Automatic updates** from GitHub Releases, with a "What's new" summary after each update.
+- **Private by default**: no telemetry; everything stays on your PC ([Privacy Policy](PRIVACY.md)).
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/02_HomeScreen_AstrosPlayroom.png" alt="Home Screen Showcase" width="470" />
-  &nbsp;
-  <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/03_Technical_Specs_Drawer.png" alt="Technical Specs Drawer" width="470" />
-</p>
+<details>
+<summary><b>More screenshots</b></summary>
 
-### 2. Dual-Mode Relinker Studio
-Convert real PlayStation 5 binaries with a single click in **Simple Mode**, or fine-tune CPU instruction lowering, subsystem targets, and symbol optimization in **Advanced Mode**.
+| Relinker Studio | Game launcher |
+| :---: | :---: |
+| <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/04_RelinkerStudio_SimpleMode.png" alt="Relinker Studio" width="440" /> | <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/10_GameLauncher_ActiveSession.png" alt="Game launcher" width="440" /> |
+| **NID inspector** | **System telemetry** |
+| <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/06_NidInspector.png" alt="NID inspector" width="440" /> | <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/08_SystemTelemetry.png" alt="System telemetry" width="440" /> |
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/04_RelinkerStudio_SimpleMode.png" alt="Relinker Studio Simple Mode" width="470" />
-  &nbsp;
-  <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/05_RelinkerStudio_AdvancedMode.png" alt="Relinker Studio Advanced Mode" width="470" />
-</p>
+</details>
 
-### 3. State-Driven Game Launcher & Real-Time Telemetry
-Monitors active game sessions with live elapsed playtime tracking, Vulkan pipeline counters, genuine CPU instruction extension checks, and high-performance discrete GPU prioritization.
+## Requirements
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/10_GameLauncher_ActiveSession.png" alt="State-Driven Game Launcher" width="470" />
-  &nbsp;
-  <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/08_SystemTelemetry.png" alt="System Hardware Telemetry" width="470" />
-</p>
+| | Minimum |
+| --- | --- |
+| **OS** | Windows 10 / 11 (64-bit), or a 64-bit Linux distribution |
+| **CPU** | x86-64 with AVX2 (Intel 4th-gen Core / AMD Ryzen or newer) |
+| **GPU** | Vulkan 1.1 driver (NVIDIA, AMD or Intel) |
+| **RAM** | 16 GB recommended |
+| **Games** | Your own decrypted PS5 game dumps |
+| **Optional** | [Python 3](https://www.python.org/downloads/) for the NID inspector |
 
-### 4. Compatibility Auditor & Clean-Room System PRXs
-Inspect imported function NIDs, discover missing middleware stubs, and manage installed clean-room PlayStation 5 system libraries.
+## Installation
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/06_NidInspector.png" alt="PlayStation 5 NID Inspector" width="470" />
-  &nbsp;
-  <img src="https://raw.githubusercontent.com/ramsforge/AnyPS5-Studio/assets/07_PrxLibraries.png" alt="Clean-Room PRX Modules" width="470" />
-</p>
+### Windows
 
----
+1. Download **`AnyPS5-Studio-Setup-<version>.exe`** from the [latest release](https://github.com/ramsforge/AnyPS5-Studio/releases/latest).
+2. Run it. It installs for your user only (no administrator prompt) and creates desktop and Start menu shortcuts.
 
-## Key Features
+### Linux
 
-### PlayStation 5 Styled Interface
-- Console-grade user experience featuring dark aesthetic, fluid navigation, cover artwork presentation, and audio feedback.
-- Modern frameless desktop window design with native window dragging, double-click to maximize, and integrated window controls.
-- Real-time gamepad integration with DualSense wireless controller status and input mapping.
+1. Download **`AnyPS5-Studio-<version>.AppImage`** from the [latest release](https://github.com/ramsforge/AnyPS5-Studio/releases/latest).
+2. Make it executable and run it:
 
-### Dual-Mode Relinker Studio
-- **Simple Mode**: A streamlined workflow designed for non-technical users. Displays cover art, verifies system readiness, automatically configures optimal instruction lowering, and starts relinking with a single click.
-- **Advanced Mode**: Full technical controls for developers and power users, including target OS (Windows vs. Linux), subsystem flags (GUI vs. Console), CPU codegen lowering (AMD Zen2 native, Intel AVX2, Rosetta 2), and import dead-code pruning.
-- **Safe Relinker Defaults**: Configured to preserve all non-PLT import relocations, dynamic C++ virtual method tables, RTTI structures, and standard error categories, eliminating runtime `0xC0000005` access violation crashes.
-- **Automated Middleware Discovery**: Automatically scans game directories and subdirectories to locate, unwrap, and convert guest middleware PRXs (such as `libcohtml`, `libfmod`, and `MediaDecoders`).
-
-### State-Driven Game Launcher
-- Integrated launch monitor that tracks real child process events and startup progression without exposing raw developer clutter.
-- Active session playtime tracking with live telemetry.
-- Intelligent process exit diagnostics that distinguish between clean exits, user stops, and crashes, providing clear remedies when an error occurs.
-- Collapsible Technical Details drawer with color-coded standard output and PRX logs, accompanied by a 1-click diagnostic report exporter.
-
-### Automatic Background Updates
-- Native integration with GitHub Releases. AnyPS5 Studio automatically checks for application updates, updated relinker engines, and newly stubbed clean-room system libraries in the background.
-
----
-
-## Getting Started
-
-### Installation
-
-#### Windows
-1. Download `AnyPS5-Studio-Setup-1.5.0.exe` from the [Releases](https://github.com/ramsforge/AnyPS5-Studio/releases) page.
-2. Run the 1-click silent installer to install AnyPS5 Studio. The installer automatically provisions the static relinker engine (`relinker.exe`), clean-room PlayStation 5 system libraries (`libs/`), and graphics translation DLLs without administrative UAC prompts.
-
-#### Linux
-
-AnyPS5 Studio is distributed as a standalone 64-bit AppImage (`AnyPS5-Studio-1.5.0.AppImage`). It bundles the native static relinker, system PRX libraries, and Vulkan runtime layers.
-
-##### 1. Prerequisite: Install FUSE 2 Library
-AppImage packages use FUSE (Filesystem in Userspace) to mount and execute. Modern Linux distributions (Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, Debian 12+, Fedora, Arch Linux) default to FUSE 3 and do not include the legacy FUSE 2 library by default.
-
-Without this package, launching the AppImage will produce the following error:
-```
-dlopen(): error loading libfuse.so.2: cannot open shared object file: No such file or directory
-```
-
-Install FUSE 2 for your distribution:
-
-- **Ubuntu 22.04 / 24.04, Linux Mint, Pop!_OS, Debian 12+**:
-  ```bash
-  sudo apt update
-  sudo apt install -y libfuse2
-  ```
-  *(Note: On Ubuntu 24.04 and newer Debian distributions, the package may also be installed as `libfuse2t64`)*
-
-- **Fedora, RHEL, CentOS**:
-  ```bash
-  sudo dnf install -y fuse-libs
-  ```
-
-- **Arch Linux, Manjaro, EndeavourOS, CachyOS**:
-  ```bash
-  sudo pacman -S --needed fuse2
-  ```
-
-- **openSUSE (Tumbleweed / Leap)**:
-  ```bash
-  sudo zypper install -y libfuse2
-  ```
-
-##### 2. Download and Mark Executable
-1. Download the latest `AnyPS5-Studio-1.5.0.AppImage` from [GitHub Releases](https://github.com/ramsforge/AnyPS5-Studio/releases).
-2. Open a terminal in the folder containing the downloaded file (e.g. `cd ~/Downloads`).
-3. Make the AppImage executable:
    ```bash
-   chmod +x AnyPS5-Studio-1.5.0.AppImage
+   chmod +x AnyPS5-Studio-*.AppImage
+   ./AnyPS5-Studio-*.AppImage
    ```
 
-##### 3. Launch the Studio
-Run the AppImage from your terminal:
-```bash
-./AnyPS5-Studio-1.5.0.AppImage
-```
-Or double-click the file in your desktop file manager (GNOME Files, Dolphin, Thunar).
+AppImages need **FUSE 2**, which many current distributions no longer install by default. If launching fails with `libfuse.so.2: cannot open shared object file`, install it:
 
-##### 4. Optional Desktop Integration
-For seamless desktop menu integration with your application launcher:
-- You can install [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) to integrate downloaded AppImages with a single click.
-- Or place the AppImage in your user binary path:
-  ```bash
-  mkdir -p ~/.local/bin
-  mv AnyPS5-Studio-1.5.0.AppImage ~/.local/bin/anyps5-studio
-  ```
+| Distribution | Command |
+| --- | --- |
+| Ubuntu, Debian, Mint, Pop!_OS | `sudo apt install libfuse2` (Ubuntu 24.04+: `libfuse2t64`) |
+| Fedora, RHEL | `sudo dnf install fuse-libs` |
+| Arch, Manjaro, EndeavourOS, CachyOS | `sudo pacman -S --needed fuse2` |
+| openSUSE | `sudo zypper install libfuse2` |
 
-##### 5. Fallback for Restricted Environments (Docker, WSL2, Sandboxes)
-If you are running in an environment where FUSE mounting is disallowed or restricted, you can run AnyPS5 Studio directly by extracting the AppImage contents:
+<details>
+<summary>No FUSE available (containers, WSL2, sandboxes)?</summary>
+
+Extract the AppImage and run it directly:
+
 ```bash
-./AnyPS5-Studio-1.5.0.AppImage --appimage-extract
+./AnyPS5-Studio-*.AppImage --appimage-extract
 ./squashfs-root/anyps5-ui
 ```
 
-### Usage
-1. Launch **AnyPS5 Studio**.
-2. Click **Import PS5 Title** to import an individual game folder or switch to **Scan Directory** to recursively discover and batch-import multiple PlayStation 5 titles from a parent folder.
-3. Select your game and click **Relink** (or navigate to **Relinker Studio**).
-4. Review the automatically selected configuration and click **Start Relinking Process**.
-5. Once conversion completes, click **Play Game** to launch the ported executable natively on your system.
+</details>
 
----
+To add Studio to your application menu, use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher), or move the file to `~/.local/bin/anyps5-studio`.
 
-## Technical Architecture
+### Updating
 
-AnyPS5 operates across three primary layers:
+Studio checks for updates in the background and downloads them automatically. You will be asked to restart when an update is ready, and a "What's new" screen lists the changes. Your library and settings are kept.
 
-1. **Relinker Core**: Parses decrypted PlayStation 5 ELF binaries, reconstructs program headers and sections, lowers AMD Zen2 instructions into Intel AVX2 equivalents when necessary, and produces a native 64-bit Windows PE (`app.exe`) or native Linux ELF (`app.elf`).
-2. **Clean-Room System Libraries (`libs/`)**: High-level reimplementations of PlayStation system modules (`libkernel.prx`, `libScePad.prx`, `libSceAudioOut.prx`, `libSceSaveData.prx`, `libSceVideoOut.prx`, `libSceAgc.prx`, etc.) compiled as native dynamic libraries.
-3. **Graphics & Shaders**: PS5 AGC shader bytecode is translated to standard SPIR-V via the built-in shader recompiler, targeting modern DirectX 12 and Vulkan rendering pipelines.
+## Quick start
 
----
+1. **Run the first-time setup.** It checks your CPU, GPU and the bundled libraries, and asks where your games are.
+2. **Add a game.** Click **Import PS5 Title** and pick a decrypted game folder, or use **Scan Directory** to add every title in a folder.
+3. **Relink it.** Select the game, open **Relinker Studio** and press **Start Relinking Process**. The recommended settings are chosen for you.
+4. **Play.** Press **Play Game** (or Cross on your controller).
 
-## System Requirements
+> [!TIP]
+> Studio reorganizes a game folder the first time it relinks or launches it. To use the dump with another tool afterwards, open the game's details panel and choose **Restore Original Folder Layout**.
 
-- **Operating System**: Windows 10/11 (64-bit) or Linux (x86-64 glibc 2.31+, e.g. Ubuntu 22.04+, Arch Linux, CachyOS, Fedora 38+).
-- **Processor**: x86-64 CPU supporting AVX2 instructions (Intel 4th Generation Core or newer, AMD Ryzen series).
-- **Graphics Card**: GPU with Vulkan 1.3 or DirectX 12 driver support (NVIDIA GeForce, AMD Radeon, or Intel Arc).
-- **Memory**: 16 GB RAM recommended.
-- **Game Files**: Decrypted PlayStation 5 software dump obtained legally from your own hardware.
+## Controls
 
----
+| Action | Controller | Keyboard |
+| --- | --- | --- |
+| Move between items | D-pad / left stick | Arrow keys |
+| Select | Cross (A) | Enter |
+| Back / close | Circle (B) | Escape |
+| Switch tabs | L1 / R1 | Q / E |
+| Change a dropdown value | Left / Right on the dropdown | Arrow keys |
 
-## Disclaimer
+On the game row, Left / Right choose a game and Cross plays it; press Down to reach the game's buttons. Studio ignores your controller while a game window is focused, so playing never presses buttons in Studio behind it.
 
-This project is developed solely for interoperability, research, software preservation, and compatibility purposes.
+## Troubleshooting
 
-AnyPS5 Studio does not include, distribute, or require copyrighted software, console firmware, cryptographic master keys, or proprietary binary dumps. Users are strictly responsible for dumping and decrypting their own legally purchased games in accordance with applicable copyright laws.
+<details>
+<summary><b>The game closes with "Unimplemented PlayStation 5 API" or crashes inside a system library</b></summary>
 
-PlayStation and PS5 are registered trademarks of Sony Interactive Entertainment Inc. This project is independent and has no affiliation with or endorsement from Sony Interactive Entertainment.
+The game needs something the AnyPS5 core does not implement yet. Check the [AnyPS5 issues and discussions](https://github.com/boykopovar/AnyPS5) or try a newer core from **Runtimes** (CI commit builds or community pull requests).
 
----
+</details>
 
-## License
+<details>
+<summary><b>"Vulkan initialization failed" / no usable Vulkan device</b></summary>
 
-This project is licensed under the GNU General Public License version 2 (GPL-2.0). See [LICENSE](LICENSE) for details.
+Install or update your GPU driver. On Linux also install your distribution's Vulkan driver package (for example `vulkan-radeon`, `vulkan-intel` or `nvidia-utils`). In a virtual machine, enable 3D acceleration.
+
+</details>
+
+<details>
+<summary><b>Missing PlayGo metadata / the game runs out of memory at start</b></summary>
+
+Some dumps lack PlayGo chunk files. In the launcher, set **PlayGo unlisted chunks** to "installed" or "absent" for that game and press Play again.
+
+</details>
+
+<details>
+<summary><b>The NID inspector says Python 3 was not found</b></summary>
+
+Install [Python 3](https://www.python.org/downloads/) (on Windows tick "Add python.exe to PATH"), then press the re-audit button (circular arrow) in the NID inspector.
+
+</details>
+
+<details>
+<summary><b>Where are my settings and logs?</b></summary>
+
+Studio stores its library, settings and runtimes in `%APPDATA%\AnyPS5 Studio` on Windows and `~/.config/AnyPS5 Studio` on Linux. A game's runtime log is `anyps5.log` in its folder; the launcher's **Technical Details** panel can copy a full diagnostics report.
+
+</details>
+
+### Where to report problems
+
+- **Studio problems** (the app, importing, folder preparation, launching, the UI): [open an issue here](https://github.com/ramsforge/AnyPS5-Studio/issues) and include the diagnostics report from the launcher.
+- **Game compatibility** (missing APIs, crashes inside system libraries, graphics bugs): report to [AnyPS5](https://github.com/boykopovar/AnyPS5).
+
+## Building from source
+
+Studio lives in [`ui/`](ui) (Electron, React, Vite, Tailwind). You need Node.js 22 or newer.
+
+```bash
+cd ui
+npm ci
+npm run electron      # build and start the desktop app
+```
+
+`npm run dev` serves the interface in a browser with simulated data, and `npm run dist` builds the installer. The installer bundles a relinker and system libraries built from the core; see [BUILD.md](docs/dev/BUILD.md) to build those, and [ARCHITECTURE.md](docs/dev/ARCHITECTURE.md) for how the core works.
+
+## Credits
+
+- [**AnyPS5**](https://github.com/boykopovar/AnyPS5) by boykopovar and its contributors: the relinker, system libraries and renderer that do the actual work. This repository tracks it; Studio only adds the launcher in `ui/`.
+
+## Legal
+
+AnyPS5 Studio is for interoperability, research and preservation. It does not include or distribute games, firmware, keys or other copyrighted material. Only use game dumps you made from games you own, in line with the law where you live.
+
+PlayStation and PS5 are trademarks of Sony Interactive Entertainment Inc. This project is not affiliated with or endorsed by Sony.
+
+[Terms of Service](TERMS.md) · [Privacy Policy](PRIVACY.md) · Licensed under [GPL-2.0](LICENSE)

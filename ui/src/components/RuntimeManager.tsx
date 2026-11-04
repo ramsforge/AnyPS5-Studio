@@ -429,9 +429,9 @@ export const RuntimeManager: React.FC<RuntimeManagerProps> = ({
                 <span className={`w-2 h-2 rounded-full shrink-0 ${activeRuntime?.isValid ? 'bg-emerald-400' : 'bg-amber-400'}`} />
                 <span
                   className="text-sm font-semibold text-white truncate"
-                  title={activeRuntime?.name || 'Bundled Stable (v0.1.2)'}
+                  title={activeRuntime?.name || 'Bundled Stable (v0.1.4)'}
                 >
-                  {activeRuntime?.name || 'Bundled Stable (v0.1.2)'}
+                  {activeRuntime?.name || 'Bundled Stable (v0.1.4)'}
                 </span>
               </div>
 

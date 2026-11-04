@@ -1322,6 +1322,8 @@ function isAuthenticGuestModule(filePath: string): boolean {
 // Every file or folder Studio moves inside a game directory is recorded here (relative to the game root),
 // so "Restore Original Folder Layout" can put the dump back the way the user provided it.
 const LAYOUT_LOG_NAME = '.anyps5studio-layout.json';
+// Runtime signature of the core that produced the game's executable, written after each successful relink.
+const RELINK_STAMP = '.relinked_with';
 const BACKUP_SUFFIX = /\.(?:bak|esbak|old|orig|self_orig)(?:_[\w-]*)?$/i;
 
 interface LayoutLog {
@@ -1613,7 +1615,7 @@ async function fixGameHierarchyInPlace(
     fs.mkdirSync(app0Dir, { recursive: true });
 
     // Move all game assets and folders into app0/ in-place (instant O(1) filesystem metadata rename)
-    const skipEntries = new Set(['app0', 'libs', 'app.exe', 'app.elf', 'eboot.elf', 'relinker.log', 'run_test.log', 'run_game.log', 'run_extended.log', 'anyps5.log', 'anyps5.prev.log', LAYOUT_LOG_NAME]);
+    const skipEntries = new Set(['app0', 'libs', 'app.exe', 'app.elf', 'eboot.elf', 'relinker.log', 'run_test.log', 'run_game.log', 'run_extended.log', 'anyps5.log', 'anyps5.prev.log', LAYOUT_LOG_NAME, RELINK_STAMP]);
     const allEntries = fs.readdirSync(resolved);
     for (const entry of allEntries) {
       if (skipEntries.has(entry)) continue;
@@ -1705,6 +1707,9 @@ async function fixGameHierarchyInPlace(
 
     if (runtimeChanged) {
       sendLog(`[AnyPS5] Active runtime engine or version changed (${prevStamp} -> ${runtimeIdentifier}). Purging and re-deploying system PRX libraries...`, 'info');
+      if (mode === 'launch' && !fs.existsSync(path.join(resolved, RELINK_STAMP))) {
+        sendLog('[AnyPS5 Runtime] This title was relinked with an earlier core. If it fails to start, relink it in Relinker Studio.', 'warn');
+      }
       try {
         const sourceFileNames = new Set(sourceFiles.map(f => f.name.toLowerCase()));
         const currentLibs = fs.readdirSync(gameLibs);
@@ -2683,6 +2688,7 @@ ipcMain.handle('anyps5:run-relinker', async (_, { game, options }) => {
             }
           }
 
+          try { fs.writeFileSync(path.join(gameDir, RELINK_STAMP), runtimeSig, 'utf8'); } catch {}
           game.status = 'ported';
           game.executableName = targetExeName;
           game.targetPlatform = isLinux ? 'linux' : (isMacos ? 'macos' : 'windows');
@@ -2770,6 +2776,13 @@ ipcMain.handle('anyps5:launch-game', async (_, game) => {
     sendLog(`[AnyPS5] Checking runtime layout: libs/ system PRX and app0/ guest filesystem...`);
     const runtimeSig = resolvedRuntime ? `${resolvedRuntime.id}:${resolvedRuntime.commitHash || resolvedRuntime.date || ''}` : '';
     hierarchyResult = await fixGameHierarchyInPlace(game.path, sendLog, 'launch', resolvedRuntime.libsPath, runtimeSig);
+    // The executable was relinked by one core but now runs against another core's libraries.
+    try {
+      const relinkedWith = fs.readFileSync(path.join(game.path, RELINK_STAMP), 'utf8').trim();
+      if (relinkedWith && relinkedWith !== runtimeSig) {
+        sendLog(`[AnyPS5 Runtime] This title was relinked with "${relinkedWith}" but runs on "${runtimeSig}". If it fails to start, relink it in Relinker Studio.`, 'warn');
+      }
+    } catch {}
   } catch (err: any) {
     console.error('Launch hierarchy check error:', err);
     sendLog(`[AnyPS5 Warning] Hierarchy check: ${err?.message || err}`, 'warn');

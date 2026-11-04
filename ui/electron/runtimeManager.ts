@@ -3,6 +3,10 @@ import path from 'path';
 import crypto from 'crypto';
 import { RuntimeProfile, RuntimesManifest, ResolvedRuntime } from '../src/types';
 
+// The AnyPS5 release shipped as "Bundled Stable" (fetched by tools/deploy_upstream_core.py). Changing it reseeds
+// every user's bundled runtime copy on next start and redeploys libraries into game folders.
+export const BUNDLED_CORE = { version: 'v0.1.4', date: '2026-10-30T23:09:14Z' };
+
 function computeFileSha256(filePath: string): string | null {
   try {
     if (!fs.existsSync(filePath)) return null;
@@ -100,10 +104,10 @@ export class RuntimeManager {
           runtimes: [
             {
               id: 'bundled',
-              name: 'Bundled Stable (v0.1.2)',
+              name: `Bundled Stable (${BUNDLED_CORE.version})`,
               type: 'bundled',
-              commitHash: 'v0.1.2',
-              date: '2026-10-14T08:56:52Z',
+              commitHash: BUNDLED_CORE.version,
+              date: BUNDLED_CORE.date,
               path: 'bundled',
               isRemovable: false,
             },
@@ -163,22 +167,22 @@ export class RuntimeManager {
         let changed = false;
 
         const bundled = manifest.runtimes.find((r) => r.id === 'bundled');
-        const needsReseed = !bundled || bundled.commitHash !== 'v0.1.2';
+        const needsReseed = !bundled || bundled.commitHash !== BUNDLED_CORE.version;
         if (!bundled) {
           manifest.runtimes.unshift({
             id: 'bundled',
-            name: 'Bundled Stable (v0.1.2)',
+            name: `Bundled Stable (${BUNDLED_CORE.version})`,
             type: 'bundled',
-            commitHash: 'v0.1.2',
-            date: '2026-10-14T08:56:52Z',
+            commitHash: BUNDLED_CORE.version,
+            date: BUNDLED_CORE.date,
             path: 'bundled',
             isRemovable: false,
           });
           changed = true;
-        } else if (bundled.commitHash !== 'v0.1.2') {
-          bundled.commitHash = 'v0.1.2';
-          bundled.name = 'Bundled Stable (v0.1.2)';
-          bundled.date = '2026-10-14T08:56:52Z';
+        } else if (bundled.commitHash !== BUNDLED_CORE.version) {
+          bundled.commitHash = BUNDLED_CORE.version;
+          bundled.name = `Bundled Stable (${BUNDLED_CORE.version})`;
+          bundled.date = BUNDLED_CORE.date;
           changed = true;
         }
 
@@ -250,7 +254,7 @@ export class RuntimeManager {
         }
       }
 
-      const shouldUpdate = force || currentVersion !== 'v0.1.2' || agcMismatch;
+      const shouldUpdate = force || currentVersion !== BUNDLED_CORE.version || agcMismatch;
 
       const targetRelinker = path.join(this.bundledDir, binName);
       if (defaultRelinker && fs.existsSync(defaultRelinker) && (shouldUpdate || !fs.existsSync(targetRelinker))) {
@@ -303,7 +307,7 @@ export class RuntimeManager {
       }
 
       try {
-        fs.writeFileSync(versionFile, 'v0.1.2', 'utf8');
+        fs.writeFileSync(versionFile, BUNDLED_CORE.version, 'utf8');
       } catch {}
     } catch (err) {
       console.warn('Seed bundled runtime warning:', err);
@@ -328,10 +332,10 @@ export class RuntimeManager {
       runtimes: [
         {
           id: 'bundled',
-          name: 'Bundled Stable (v0.1.2)',
+          name: `Bundled Stable (${BUNDLED_CORE.version})`,
           type: 'bundled',
-          commitHash: 'v0.1.2',
-          date: '2026-10-14T08:56:52Z',
+          commitHash: BUNDLED_CORE.version,
+          date: BUNDLED_CORE.date,
           path: 'bundled',
           isRemovable: false,
         },
@@ -440,9 +444,9 @@ export class RuntimeManager {
     return {
       fallbackFrom,
       id: 'bundled',
-      name: 'Bundled Stable (v0.1.2) [Fallback]',
+      name: `Bundled Stable (${BUNDLED_CORE.version}) [Fallback]`,
       type: 'bundled',
-      commitHash: 'v0.1.2',
+      commitHash: BUNDLED_CORE.version,
       date: new Date().toISOString(),
       relinkerPath: this.defaultRelinkerGetter(),
       libsPath: this.defaultLibsGetter(),

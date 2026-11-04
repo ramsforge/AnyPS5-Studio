@@ -164,6 +164,20 @@ export const RELEASE_HIGHLIGHTS_MAP: Record<string, ReleaseHighlight[]> = {
       title: 'Honest Diagnostics and Fixes',
       description: 'Real hardware checks, a real NID audit (or a clear reason why not), working Merged Builds, Settings that take effect, and many launcher fixes.'
     }
+  ],
+  '1.5.1': [
+    {
+      title: 'AnyPS5 Core v0.1.4',
+      description: 'The bundled relinker and system libraries are updated from AnyPS5 v0.1.2 to v0.1.4, bringing the latest upstream compatibility work.'
+    },
+    {
+      title: 'Relink Your Games',
+      description: 'Titles relinked with the previous core may need relinking: if a game fails to start, open Relinker Studio and relink it.'
+    },
+    {
+      title: 'Verified Core Downloads',
+      description: 'The bundled core is checked against the checksums AnyPS5 publishes for each release.'
+    }
   ]
 };
 

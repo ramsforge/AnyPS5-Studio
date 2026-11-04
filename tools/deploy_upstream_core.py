@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
@@ -10,19 +11,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-UPSTREAM_VERSION = "v0.1.2"
-WINDOWS_AGC_DRIVER_SIZE = 12989911
+UPSTREAM_VERSION = "v0.1.4"
 
 RELEASE_ASSETS = {
     "windows": {
         "relinker_url": f"https://github.com/boykopovar/AnyPS5/releases/download/{UPSTREAM_VERSION}/relinker-{UPSTREAM_VERSION}.exe",
         "relinker_bin": "relinker.exe",
+        "relinker_sha256": "6f6d49e3613ea7fce859621265068bfd64161a729a8051c83150f2d45ec193e0",
+        "prx_sha256": "cbd61c521d555614dbcddc62cdabf45acfe409c520307cdb58732c8486dd0d7a",
         "prx_url": f"https://github.com/boykopovar/AnyPS5/releases/download/{UPSTREAM_VERSION}/prx-windows-{UPSTREAM_VERSION}.zip",
         "archive_type": "zip",
     },
     "linux": {
         "relinker_url": f"https://github.com/boykopovar/AnyPS5/releases/download/{UPSTREAM_VERSION}/relinker-{UPSTREAM_VERSION}",
         "relinker_bin": "relinker",
+        "relinker_sha256": "9e5afd1313520906a9af43c468d6e31a5d2237879a85c0984134d628348e92a8",
+        "prx_sha256": "805ba3f455924a9fc2ca9dae7b398f9c9d4e4b88b6251d738d64afed98f8e6ef",
         "prx_url": f"https://github.com/boykopovar/AnyPS5/releases/download/{UPSTREAM_VERSION}/prx-linux-{UPSTREAM_VERSION}.tar.gz",
         "archive_type": "tar.gz",
     },
@@ -46,6 +50,19 @@ def download_file(url: str, dest_path: Path) -> bool:
         print(f"Download failed for {url}: {e}")
         return False
 
+# SHA-256 digests GitHub publishes for the pinned upstream release assets; a mismatch stops the build.
+def verify_sha256(path: Path, expected: str) -> bool:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual != expected:
+        print(f"ERROR: {path.name} failed SHA-256 verification (expected {expected}, got {actual}).")
+        return False
+    print(f"Verified {path.name} (SHA-256 {actual}).")
+    return True
+
 def deploy(target_platform: str) -> bool:
     is_linux = (target_platform == "linux")
     cfg = RELEASE_ASSETS.get(target_platform)
@@ -67,12 +84,18 @@ def deploy(target_platform: str) -> bool:
         print(f"ERROR: Failed to download official relinker binary from {cfg['relinker_url']}")
         shutil.rmtree(temp_dir, ignore_errors=True)
         return False
+    if not verify_sha256(temp_relinker, cfg["relinker_sha256"]):
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return False
 
     # 2. Download official PRX archive
     archive_ext = ".zip" if cfg["archive_type"] == "zip" else ".tar.gz"
     archive_path = temp_dir / f"prx-archive{archive_ext}"
     if not download_file(cfg["prx_url"], archive_path):
         print(f"ERROR: Failed to download official PRX archive from {cfg['prx_url']}")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return False
+    if not verify_sha256(archive_path, cfg["prx_sha256"]):
         shutil.rmtree(temp_dir, ignore_errors=True)
         return False
 
@@ -100,22 +123,6 @@ def deploy(target_platform: str) -> bool:
             lower = f.lower()
             if lower.endswith(".prx") or lower.endswith(".dll") or lower.endswith(".so"):
                 extracted_prxs.append(p)
-
-    # 5. Validate libSceAgcDriver.prx size on Windows
-    if not is_linux:
-        agc_driver = next((p for p in extracted_prxs if p.name.lower() == "libsceagcdriver.prx"), None)
-        if not agc_driver:
-            print("ERROR: libSceAgcDriver.prx not found in extracted Windows PRX archive!")
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return False
-
-        actual_size = agc_driver.stat().st_size
-        if actual_size != WINDOWS_AGC_DRIVER_SIZE:
-            print(f"ERROR: libSceAgcDriver.prx size validation failed! Expected {WINDOWS_AGC_DRIVER_SIZE} bytes, got {actual_size} bytes.")
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return False
-
-        print(f"Validated libSceAgcDriver.prx ({actual_size} bytes). Matches official AnyPS5 {UPSTREAM_VERSION}.")
 
     # 6. Deploy relinker binary
     target_build = ROOT / "build"
